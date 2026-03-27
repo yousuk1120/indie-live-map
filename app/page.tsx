@@ -60,15 +60,19 @@ export default function Home() {
     fetchEvents();
   }, []);
 
-  const filteredEvents = events.filter((event) => {
-    if (!searchQuery) return true;
+  // 검색 필터링: 제목, 공연장, 아티스트 이름을 모두 훑습니다.
+  const filteredEvents = useMemo(() => {
+    if (!searchQuery) return events;
+
     const q = searchQuery.toLowerCase();
-    return (
-      event.title?.toLowerCase().includes(q) ||
-      event.venueName?.toLowerCase().includes(q) ||
-      event.artistNames?.toLowerCase().includes(q)
-    );
-  });
+    return events.filter((event) => {
+      return (
+        event.title?.toLowerCase().includes(q) ||
+        event.venueName?.toLowerCase().includes(q) ||
+        event.artistNames?.toLowerCase().includes(q)
+      );
+    });
+  }, [events, searchQuery]);
 
   const sortEvents = (eventsToSort: EventItem[]) => {
     const parseDate = (d?: string, t?: string) => {

@@ -63,12 +63,17 @@ ${postsText}
     const parsedContent = response.choices[0].message.content || "{}";
     const data = JSON.parse(parsedContent);
 
+    // ★ 유석님을 위한 자동 필터링 bouncer (날짜, 장소, 제목 중 하나라도 없으면 입구 컷!)
+    if (data.chosenIndex !== -1) {
+      if (!data.date || !data.venueName || !data.title || data.title === "") {
+        console.log("⚠️ 필수 정보 누락으로 자동 거름:", data.title);
+        // 인덱스를 -1로 바꿔서 '선택 안 됨'으로 처리해버립니다.
+        return NextResponse.json({
+          success: true,
+          data: { ...data, chosenIndex: -1 },
+          message: "필수 정보(날짜/장소/제목) 부족으로 자동 필터링되었습니다."
+        });
+      }
+    }
+
     return NextResponse.json({ success: true, data });
-  } catch (error: any) {
-    console.error("AI 캡션 파싱 작동 실패:", error);
-    return NextResponse.json(
-      { success: false, error: error.message || "OpenAI API 호출 중 오류가 발생했습니다." },
-      { status: 500 }
-    );
-  }
-}
