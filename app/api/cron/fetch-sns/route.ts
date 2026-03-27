@@ -10,12 +10,11 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const querySecret = searchParams.get("secret");
   const authHeader = req.headers.get("authorization");
+  const cronSecret = process.env.CRON_SECRET;
 
-  // 로컬 테스트: ?secret= 쿼리 파라미터
-  // Vercel Cron 자동 호출: Authorization 헤더 (Bearer CRON_SECRET)
   const isAuthorized =
-    querySecret === process.env.CRON_SECRET ||
-    authHeader === `Bearer ${process.env.CRON_SECRET}`;
+    !!cronSecret &&
+    (querySecret === cronSecret || authHeader === `Bearer ${cronSecret}`);
 
   if (!isAuthorized) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
