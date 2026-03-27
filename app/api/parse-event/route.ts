@@ -17,7 +17,8 @@ export async function POST(req: Request) {
     });
 
     const postsArray = Array.isArray(posts) ? posts : [{ instaLink: "수동입력", caption: caption || "" }];
-    const postsText = postsArray.map((post, index) => `[게시물 ${index}]\n- 캡션: ${post.caption}`).join("\n\n");
+
+    const postsText = postsArray.map((p, i) => `[게시물 ${i}]\n- 캡션: ${p.caption}`).join("\n\n");
 
     const prompt = `
 당신은 인디 밴드와 공연 관련 게시물을 분석하는 AI입니다. (@${accountName || "알수없음"} 계정의 게시물)
@@ -37,18 +38,15 @@ export async function POST(req: Request) {
 [게시물 목록]
 ${postsText}
 
-[추출 규칙]
-가장 유력한 "미래 공연" 홍보 게시물을 1개 선택하여 아래 필드값을 무조건 하나의 JSON 객체로 응답하세요.
-
 [출력 JSON 구조]
-1. "chosenIndex": (숫자) 선택한 예비 공연 게시물의 인덱스 번호 (0, 1, 2). 없으면 -1
-2. "title": 공연 제목 (없으면 메인 밴드명이나 기획 이름 추출, 아예 없으면 "")
-3. "date": 공연 날짜 (반드시 "YYYY-MM-DD" 혹은 "MM-DD 형태"로 정규화해서 문자열로 출력, 요일 제외, 예: "2026-05-02", 없으면 "")
-4. "time": 공연 시작 시간 (반드시 "HH:mm" 24시간제 포맷으로 출력, 예: "18:00", 시간 정보가 없으면 "")
-5. "venueName": 장소명 (클럽명이나 오프라인 라이브홀 이름, 없으면 "")
-6. "artistNames": 라인업 인디 밴드들 (반드시 쉼표로만 구분, "와", "그리고" 같은 수식어 제거)
-7. "ticketUrl": 예매처 관련 안내사항 (웹사이트 주소만 뽑거나, 계좌번호 추출. 만약 '예매 오픈 시간'이 포함되어 있다면 "오후 8시" 등의 표현을 무조건 "20:00" 같은 24시간제 HH:mm 포맷으로 변환해서 작성)
-8. "price": 티켓 가격 정보 (예: "예매 30,000원, 현매 35,000원", "무료" 등, 없으면 "")
+1. "chosenIndex": (숫자) 선택한 예비 공연 게시물의 인덱스 번호. 없으면 -1
+2. "title": 공연 제목. 없으면 ""
+3. "date": 공연 날짜. 반드시 "YYYY-MM-DD" 혹은 "MM-DD" 문자열. 없으면 ""
+4. "time": 공연 시작 시간. 반드시 "HH:mm" 24시간제 문자열. 없으면 ""
+5. "venueName": 장소명. 없으면 ""
+6. "artistNames": 라인업 아티스트명. 쉼표로만 구분
+7. "ticketUrl": 예매 또는 안내 URL/안내문
+8. "price": 티켓 가격 정보. 예: "예매 30,000원, 현매 35,000원"
 `;
 
     const response = await openai.chat.completions.create({
@@ -62,7 +60,6 @@ ${postsText}
 
     if (data.chosenIndex !== -1) {
       if (!data.date || !data.venueName || !data.title || data.title === "") {
-        console.log("⚠️ 필수 정보 누락으로 자동 거름:", data.title);
         return NextResponse.json({
           success: true,
           data: { ...data, chosenIndex: -1 },
@@ -75,7 +72,10 @@ ${postsText}
   } catch (error: any) {
     console.error("parse-event 오류:", error);
     return NextResponse.json(
-      { success: false, error: error?.message || "Unknown error" },
+      {
+        success: false,
+        error: error?.message || "공연 파싱 중 오류가 발생했습니다.",
+      },
       { status: 500 }
     );
   }

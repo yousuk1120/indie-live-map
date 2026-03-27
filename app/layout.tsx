@@ -17,7 +17,7 @@ export const metadata: Metadata = {
     default: "라이브클럽 · 인디공연장 일정",
     template: "%s | 라이브클럽 · 인디공연장 일정",
   },
-  description: "서울 라이브클럽과 인디공연장 일정을 지도, 목록, 달력으로 확인하는 사이트입니다.",
+  description: "라이브클럽과 인디공연장 공연 일정을 목록, 지도, 달력으로 보는 사이트입니다.",
 };
 
 export default function RootLayout({
@@ -26,11 +26,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="ko"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
-      <body className="min-h-full flex flex-col">{children}</body>
+    <html lang="ko" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
+      <body className="min-h-full">{children}</body>
     </html>
   );
 }
