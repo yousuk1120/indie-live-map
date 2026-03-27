@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import type { ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import Script from "next/script";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase/firestore";
-import Script from "next/script";
 
 declare global {
   interface Window {
-    kakao: any;
+    kakao?: any;
   }
 }
 
@@ -23,23 +25,102 @@ type EventItem = {
   posterUrl?: string;
 };
 
-const formatUrl = (url?: string) => {
-  if (!url) return "#";
-  const trimmed = url.trim();
+const KAKAO_KEY = process.env.NEXT_PUBLIC_KAKAO_MAP_API_KEY;
+const BRAND_TITLE = "라이브클럽 · 인디공연장 일정";
+const BRAND_SUBTITLE = "인디공연장, 라이브클럽, 밴드 공연 일정을 목록·지도·달력으로 한 번에 확인하세요.";
+const SEOUL_CENTER = { lat: 37.5547, lng: 126.9226 };
+
+function formatExternalUrl(value?: string) {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
   if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed;
-  if (trimmed.startsWith("@")) return `https://instagram.com/${trimmed.substring(1)}`;
-  return `https://${trimmed}`;
-};
+  if (trimmed.startsWith("@")) return `https://instagram.com/${trimmed.slice(1)}`;
+  if (/^(www\.)?[\w.-]+\.[a-z]{2,}(\/.*)?$/i.test(trimmed) && !trimmed.includes(" ")) {
+    return `https://${trimmed}`;
+  }
+  return null;
+}
+
+function formatPriceLines(value?: string) {
+  if (!value) return [] as string[];
+  let normalized = value
+    .replace(/\s*\/\s*/g, ", ")
+    .replace(/\s*\|\s*/g, ", ")
+    .replace(/\s*·\s*/g, ", ");
+
+  normalized = normalized
+    .replace(/\s*,\s*(?=(예매|현매|예판|당일|door))/gi, "\n")
+    .replace(/(?<!^)(?=(예매|현매|예판|당일|door))/gi, "\n");
+
+  const parts = normalized
+    .split(/\n|,(?=\s*(예매|현매|예판|당일|door|무료|일반|학생))/i)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  return parts.length > 0 ? parts : [value.trim()];
+}
+
+function parseEventTimestamp(date?: string, time?: string) {
+  if (!date) return Number.POSITIVE_INFINITY;
+
+  const parts = date.split("-");
+  if (parts.length !== 3) return Number.POSITIVE_INFINITY;
+
+  const [rawYear, rawMonth, rawDay] = parts;
+  const year = rawYear.length === 2 ? `20${rawYear}` : rawYear;
+  const month = rawMonth.padStart(2, "0");
+  const day = rawDay.padStart(2, "0");
+  const clock = time?.trim() ? time.trim() : "23:59";
+  const parsed = new Date(`${year}-${month}-${day}T${clock}`);
+
+  return Number.isNaN(parsed.getTime()) ? Number.POSITIVE_INFINITY : parsed.getTime();
+}
+
+function normalizeDateKey(date?: string) {
+  if (!date) return "";
+  const parts = date.split("-");
+  if (parts.length !== 3) return date;
+  const [rawYear, rawMonth, rawDay] = parts;
+  const year = rawYear.length === 2 ? `20${rawYear}` : rawYear;
+  return `${year}-${rawMonth.padStart(2, "0")}-${rawDay.padStart(2, "0")}`;
+}
+
+function formatDateLabel(date?: string) {
+  const normalized = normalizeDateKey(date);
+  if (!normalized) return "일정 미정";
+
+  const parsed = new Date(`${normalized}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return date ?? "일정 미정";
+
+  return new Intl.DateTimeFormat("ko-KR", {
+    month: "long",
+    day: "numeric",
+    weekday: "short",
+  }).format(parsed);
+}
+
+function venueSearchQueries(venueName: string) {
+  return Array.from(
+    new Set([
+      venueName,
+      `${venueName} 공연장`,
+      `${venueName} 라이브클럽`,
+      `${venueName} 서울`,
+      `${venueName} 홍대`,
+    ])
+  );
+}
 
 export default function Home() {
   const [events, setEvents] = useState<EventItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<"list" | "map" | "calendar">("list");
-
   const [mapLoaded, setMapLoaded] = useState(false);
+  const [mapError, setMapError] = useState<string | null>(null);
   const [selectedVenue, setSelectedVenue] = useState<string | null>(null);
-  const [selectedDateEvents, setSelectedDateEvents] = useState<{ date: string, events: EventItem[] } | null>(null);
+  const [selectedDateEvents, setSelectedDateEvents] = useState<{ label: string; events: EventItem[] } | null>(null);
   const [currentMonth, setCurrentMonth] = useState(new Date());
 
   useEffect(() => {
@@ -57,190 +138,424 @@ export default function Home() {
         setLoading(false);
       }
     };
+
     fetchEvents();
   }, []);
 
-  // 검색 필터링: 제목, 공연장, 아티스트 이름을 모두 훑습니다.
   const filteredEvents = useMemo(() => {
-    if (!searchQuery) return events;
+    if (!searchQuery.trim()) return events;
+    const query = searchQuery.toLowerCase();
 
-    const q = searchQuery.toLowerCase();
     return events.filter((event) => {
-      return (
-        event.title?.toLowerCase().includes(q) ||
-        event.venueName?.toLowerCase().includes(q) ||
-        event.artistNames?.toLowerCase().includes(q)
-      );
+      return [event.title, event.venueName, event.artistNames]
+        .filter(Boolean)
+        .some((value) => value!.toLowerCase().includes(query));
     });
   }, [events, searchQuery]);
 
-  const sortEvents = (eventsToSort: EventItem[]) => {
-    const parseDate = (d?: string, t?: string) => {
-      if (!d) return Infinity;
-      try {
-        const parts = d.split('-');
-        if (parts.length === 3) {
-          if (parts[0].length === 2) parts[0] = `20${parts[0]}`;
-          const timeStr = t || "23:59";
-          return new Date(`${parts.join('-')}T${timeStr}`).getTime();
-        }
-        return Infinity;
-      } catch (e) {
-        return Infinity;
-      }
+  const sortedEvents = useMemo(
+    () => [...filteredEvents].sort((a, b) => parseEventTimestamp(a.date, a.time) - parseEventTimestamp(b.date, b.time)),
+    [filteredEvents]
+  );
+
+  const venueBuckets = useMemo(() => {
+    const bucket = new Map<string, EventItem[]>();
+    sortedEvents.forEach((event) => {
+      if (!event.venueName) return;
+      const key = event.venueName.trim();
+      bucket.set(key, [...(bucket.get(key) ?? []), event]);
+    });
+
+    return Array.from(bucket.entries())
+      .map(([venueName, eventsForVenue]) => ({ venueName, events: eventsForVenue }))
+      .sort((a, b) => b.events.length - a.events.length || a.venueName.localeCompare(b.venueName));
+  }, [sortedEvents]);
+
+  const summary = useMemo(() => {
+    const now = new Date();
+    const thisMonth = sortedEvents.filter((event) => {
+      const normalized = normalizeDateKey(event.date);
+      if (!normalized) return false;
+      return normalized.startsWith(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`);
+    }).length;
+
+    return {
+      totalEvents: sortedEvents.length,
+      totalVenues: venueBuckets.length,
+      thisMonth,
     };
-    return [...eventsToSort].sort((a, b) => parseDate(a.date, a.time) - parseDate(b.date, b.time));
-  };
+  }, [sortedEvents, venueBuckets.length]);
 
   useEffect(() => {
-    if (viewMode === "map" && mapLoaded && window.kakao) {
-      window.kakao.maps.load(() => {
-        const container = document.getElementById("kakao-map");
-        if (!container) return;
-
-        const options = { center: new window.kakao.maps.LatLng(37.5559, 126.9234), level: 6 };
-        const map = new window.kakao.maps.Map(container, options);
-        const ps = new window.kakao.maps.services.Places();
-
-        const uniqueVenues = Array.from(new Set(filteredEvents.map(e => e.venueName).filter(Boolean))) as string[];
-
-        uniqueVenues.forEach((venueName) => {
-          ps.keywordSearch(venueName, (data: any, status: any) => {
-            if (status === window.kakao.maps.services.Status.OK) {
-              const coords = new window.kakao.maps.LatLng(data[0].y, data[0].x);
-              const marker = new window.kakao.maps.Marker({ map, position: coords });
-
-              const infowindow = new window.kakao.maps.InfoWindow({
-                content: `<div style="padding:8px;font-size:14px;font-weight:bold;color:#1e293b;white-space:nowrap;border-radius:8px;">${venueName}</div>`,
-                disableAutoPan: true,
-              });
-
-              window.kakao.maps.event.addListener(marker, 'mouseover', () => infowindow.open(map, marker));
-              window.kakao.maps.event.addListener(marker, 'mouseout', () => infowindow.close());
-              window.kakao.maps.event.addListener(marker, 'click', () => setSelectedVenue(venueName));
-            }
-          });
-        });
-      });
+    if (viewMode !== "map") return;
+    if (!KAKAO_KEY) {
+      setMapError("카카오 지도 API 키가 없어 지도를 불러올 수 없어요.");
+      return;
     }
-  }, [viewMode, mapLoaded, filteredEvents]);
+    if (!mapLoaded || !window.kakao?.maps) return;
+
+    let cancelled = false;
+    const markers: any[] = [];
+    const overlays: any[] = [];
+
+    setMapError(null);
+
+    window.kakao.maps.load(() => {
+      if (cancelled) return;
+
+      const container = document.getElementById("kakao-map");
+      if (!container) return;
+
+      const map = new window.kakao.maps.Map(container, {
+        center: new window.kakao.maps.LatLng(SEOUL_CENTER.lat, SEOUL_CENTER.lng),
+        level: 6,
+      });
+
+      const places = new window.kakao.maps.services.Places();
+      const bounds = new window.kakao.maps.LatLngBounds();
+
+      if (venueBuckets.length === 0) {
+        setMapError("표시할 공연장 정보가 없어요.");
+        return;
+      }
+
+      let pending = venueBuckets.length;
+      let successCount = 0;
+
+      const finishSearch = () => {
+        pending -= 1;
+        if (pending === 0) {
+          if (successCount > 0) {
+            map.setBounds(bounds);
+          } else {
+            setMapError("공연장 위치를 찾지 못했어요. 장소명을 조금 더 구체적으로 입력해보세요.");
+          }
+        }
+      };
+
+      venueBuckets.forEach(({ venueName, events: venueEvents }) => {
+        const queries = venueSearchQueries(venueName);
+
+        const searchVenue = (index: number) => {
+          if (cancelled) return;
+          if (index >= queries.length) {
+            finishSearch();
+            return;
+          }
+
+          places.keywordSearch(
+            queries[index],
+            (data: any, status: any) => {
+              if (cancelled) return;
+
+              if (status === window.kakao.maps.services.Status.OK && data?.length) {
+                const first = data[0];
+                const position = new window.kakao.maps.LatLng(Number(first.y), Number(first.x));
+
+                const marker = new window.kakao.maps.Marker({ map, position });
+                markers.push(marker);
+                bounds.extend(position);
+                successCount += 1;
+
+                const overlay = new window.kakao.maps.CustomOverlay({
+                  position,
+                  yAnchor: 1.75,
+                  content: `<div class="kakao-overlay-chip">${venueName}<span>${venueEvents.length}</span></div>`,
+                });
+                overlay.setMap(map);
+                overlays.push(overlay);
+
+                window.kakao.maps.event.addListener(marker, "click", () => {
+                  setSelectedVenue(venueName);
+                });
+
+                finishSearch();
+                return;
+              }
+
+              searchVenue(index + 1);
+            },
+            {
+              location: new window.kakao.maps.LatLng(SEOUL_CENTER.lat, SEOUL_CENTER.lng),
+              radius: 20000,
+              size: 5,
+            }
+          );
+        };
+
+        searchVenue(0);
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      markers.forEach((marker) => marker.setMap(null));
+      overlays.forEach((overlay) => overlay.setMap(null));
+    };
+  }, [viewMode, mapLoaded, venueBuckets]);
 
   const year = currentMonth.getFullYear();
   const month = currentMonth.getMonth();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const firstDayOfMonth = new Date(year, month, 1).getDay();
 
-  const getFormattedDateString = (d: number) => {
-    const yy = String(year).slice(-2);
-    const mm = String(month + 1).padStart(2, '0');
-    const dd = String(d).padStart(2, '0');
-    return `${yy}-${mm}-${dd}`;
-  };
+  const eventsByDate = useMemo(() => {
+    const dateMap = new Map<string, EventItem[]>();
+    sortedEvents.forEach((event) => {
+      const key = normalizeDateKey(event.date);
+      if (!key) return;
+      dateMap.set(key, [...(dateMap.get(key) ?? []), event]);
+    });
+    return dateMap;
+  }, [sortedEvents]);
+
+  const selectedVenueEvents = selectedVenue
+    ? sortedEvents.filter((event) => event.venueName === selectedVenue)
+    : [];
 
   return (
-    // 토스 다크모드 특유의 진한 회/검정 배경
-    <main className="min-h-screen bg-[#0F0F10] text-[#F2F4F6] font-sans selection:bg-[#3182F6]/30">
+    <main className="min-h-screen text-slate-50 selection:bg-blue-500/30">
+      {KAKAO_KEY ? (
+        <Script
+          src={`https://dapi.kakao.com/v2/maps/sdk.js?appkey=${KAKAO_KEY}&libraries=services&autoload=false`}
+          strategy="afterInteractive"
+          onLoad={() => setMapLoaded(true)}
+          onError={() => setMapError("카카오 지도 스크립트를 불러오지 못했어요. 도메인 설정과 API 키를 확인해주세요.")}
+        />
+      ) : null}
 
-      <Script
-        src={`https://dapi.kakao.com/v2/maps/sdk.js?appkey=${process.env.NEXT_PUBLIC_KAKAO_MAP_API_KEY}&libraries=services&autoload=false`}
-        onLoad={() => setMapLoaded(true)}
-      />
+      <div className="mx-auto max-w-6xl px-4 py-8 md:px-6 md:py-12">
+        <section className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-[linear-gradient(135deg,rgba(17,24,39,0.92),rgba(15,23,42,0.82))] px-6 py-8 shadow-[0_30px_80px_rgba(2,6,23,0.45)] md:px-10 md:py-10">
+          <div className="absolute -right-16 top-0 h-56 w-56 rounded-full bg-blue-500/20 blur-3xl" />
+          <div className="absolute bottom-0 left-0 h-40 w-40 rounded-full bg-cyan-400/10 blur-3xl" />
 
-      <div className="max-w-5xl mx-auto p-4 md:p-8 pt-12 md:pt-16">
-        <header className="mb-10 text-left md:text-center">
-          <h1 className="text-3xl md:text-4xl font-extrabold text-[#F9FAFB] mb-3 tracking-tight">Authentic Map</h1>
-          <p className="text-[#8B95A1] font-medium text-base">인디 공연과 라이브 클럽 일정을 한눈에.</p>
-        </header>
+          <div className="relative grid gap-8 lg:grid-cols-[1.3fr_0.9fr] lg:items-end">
+            <div>
+              <span className="inline-flex items-center rounded-full border border-blue-400/30 bg-blue-400/10 px-3 py-1 text-xs font-semibold tracking-wide text-blue-200">
+                LIVE CLUBS · INDIE SHOWS
+              </span>
+              <h1 className="mt-4 text-3xl font-semibold tracking-tight text-white md:text-5xl">
+                {BRAND_TITLE}
+              </h1>
+              <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-300 md:text-base">
+                {BRAND_SUBTITLE}
+              </p>
+            </div>
 
-        <div className="flex flex-col md:flex-row gap-4 mb-10 items-center justify-between">
-          <div className="relative w-full md:max-w-md">
+            <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
+              <SummaryCard label="전체 공연" value={`${summary.totalEvents}개`} hint="현재 목록 기준" />
+              <SummaryCard label="공연장" value={`${summary.totalVenues}곳`} hint="중복 제거 기준" />
+              <SummaryCard label="이번 달" value={`${summary.thisMonth}개`} hint="이번 달 일정" />
+            </div>
+          </div>
+        </section>
+
+        <section className="mt-6 grid gap-4 rounded-[1.75rem] border border-white/8 bg-white/5 p-4 backdrop-blur md:grid-cols-[1fr_auto] md:items-center md:p-5">
+          <div className="relative">
             <input
-              type="text" placeholder="공연명, 장소, 아티스트 검색" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-[#19191B] border border-transparent rounded-2xl py-4 px-5 pr-12 text-[#F9FAFB] placeholder-[#8B95A1] focus:outline-none focus:bg-[#222225] transition-all text-base shadow-sm"
+              type="text"
+              placeholder="공연명, 장소, 아티스트 검색"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-4 text-sm text-white outline-none transition focus:border-blue-400/40 focus:bg-black/40 md:text-base"
             />
           </div>
 
-          <div className="flex bg-[#19191B] p-1.5 rounded-2xl w-full md:w-auto overflow-x-auto custom-scrollbar shadow-sm">
-            <button onClick={() => setViewMode("list")} className={`flex-1 min-w-[90px] md:flex-none px-6 py-3 rounded-xl text-[15px] font-bold transition-all ${viewMode === "list" ? "bg-[#3182F6] text-white shadow-md" : "text-[#8B95A1] hover:text-[#F9FAFB]"}`}>목록</button>
-            <button onClick={() => setViewMode("map")} className={`flex-1 min-w-[90px] md:flex-none px-6 py-3 rounded-xl text-[15px] font-bold transition-all ${viewMode === "map" ? "bg-[#3182F6] text-white shadow-md" : "text-[#8B95A1] hover:text-[#F9FAFB]"}`}>지도</button>
-            <button onClick={() => setViewMode("calendar")} className={`flex-1 min-w-[90px] md:flex-none px-6 py-3 rounded-xl text-[15px] font-bold transition-all ${viewMode === "calendar" ? "bg-[#3182F6] text-white shadow-md" : "text-[#8B95A1] hover:text-[#F9FAFB]"}`}>달력</button>
+          <div className="grid grid-cols-3 gap-2 rounded-2xl bg-black/20 p-1">
+            <ViewButton active={viewMode === "list"} onClick={() => setViewMode("list")}>목록</ViewButton>
+            <ViewButton active={viewMode === "map"} onClick={() => setViewMode("map")}>지도</ViewButton>
+            <ViewButton active={viewMode === "calendar"} onClick={() => setViewMode("calendar")}>달력</ViewButton>
           </div>
-        </div>
+        </section>
 
         {loading ? (
-          <div className="flex justify-center py-32"><p className="text-[#8B95A1] font-medium text-lg">데이터를 불러오고 있어요</p></div>
-        ) : filteredEvents.length === 0 ? (
-          <div className="bg-[#19191B] rounded-3xl py-32 text-center"><p className="text-[#8B95A1] font-medium text-lg">검색 결과가 없어요.</p></div>
+          <section className="mt-8 rounded-[2rem] border border-white/8 bg-white/5 p-16 text-center text-slate-300">
+            공연 데이터를 불러오고 있어요.
+          </section>
+        ) : sortedEvents.length === 0 ? (
+          <section className="mt-8 rounded-[2rem] border border-white/8 bg-white/5 p-16 text-center">
+            <h2 className="text-xl font-semibold text-white">검색 결과가 없어요.</h2>
+            <p className="mt-2 text-sm text-slate-400">다른 공연명이나 공연장 이름으로 다시 검색해보세요.</p>
+          </section>
         ) : (
-          <>
+          <section className="mt-8">
             {viewMode === "list" && (
-              <div key="view-list" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 md:gap-6 animate-in fade-in duration-300">
-                {sortEvents(filteredEvents).map((event) => <EventCard key={event.id} event={event} />)}
+              <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+                {sortedEvents.map((event) => (
+                  <EventCard key={event.id} event={event} />
+                ))}
               </div>
             )}
 
             {viewMode === "map" && (
-              /* DOM 재활용 버그 방지용 key 추가 */
-              <div key="view-map" className="bg-[#19191B] rounded-[2rem] p-2 h-[65vh] min-h-[500px] relative overflow-hidden animate-in fade-in duration-300 shadow-sm">
-                {!mapLoaded && <div className="absolute inset-0 flex items-center justify-center bg-[#19191B] z-10"><p className="text-[#8B95A1] font-medium text-sm">지도를 불러오고 있어요...</p></div>}
-                <div id="kakao-map" className="w-full h-full rounded-[1.5rem] bg-[#222225]"></div>
+              <div className="grid gap-5 lg:grid-cols-[1.45fr_0.75fr]">
+                <div className="overflow-hidden rounded-[2rem] border border-white/8 bg-[#121826] shadow-[0_20px_60px_rgba(2,6,23,0.35)]">
+                  <div className="flex items-center justify-between border-b border-white/8 px-5 py-4">
+                    <div>
+                      <h2 className="text-lg font-semibold text-white">공연장 지도</h2>
+                      <p className="mt-1 text-xs text-slate-400">마커를 누르면 해당 공연장 일정을 볼 수 있어요.</p>
+                    </div>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">
+                      {venueBuckets.length}개 공연장
+                    </span>
+                  </div>
+
+                  <div className="relative h-[560px] bg-[#0f172a]">
+                    {!mapLoaded && !mapError && (
+                      <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-300">
+                        지도를 불러오는 중입니다.
+                      </div>
+                    )}
+                    {mapError && (
+                      <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-[#0f172a]/90 px-6 text-center">
+                        <p className="text-base font-semibold text-white">지도를 표시할 수 없어요.</p>
+                        <p className="max-w-sm text-sm leading-6 text-slate-300">{mapError}</p>
+                      </div>
+                    )}
+                    <div id="kakao-map" className="h-full w-full" />
+                  </div>
+                </div>
+
+                <aside className="flex h-full flex-col gap-4">
+                  <div className="rounded-[2rem] border border-white/8 bg-white/5 p-5">
+                    <h3 className="text-base font-semibold text-white">지도 사용 팁</h3>
+                    <p className="mt-2 text-sm leading-6 text-slate-400">
+                      지도가 비어 있으면 카카오 지도 키가 배포 환경에 들어가 있는지, 그리고 그 키의 허용 도메인에 현재 Vercel 주소가 등록되어 있는지 먼저 확인하세요.
+                    </p>
+                  </div>
+
+                  <div className="rounded-[2rem] border border-white/8 bg-white/5 p-5">
+                    <h3 className="text-base font-semibold text-white">공연장 리스트</h3>
+                    <div className="mt-4 max-h-[380px] space-y-3 overflow-y-auto pr-1 custom-scrollbar">
+                      {venueBuckets.map(({ venueName, events: venueEvents }) => {
+                        const active = selectedVenue === venueName;
+                        return (
+                          <button
+                            key={venueName}
+                            onClick={() => setSelectedVenue(venueName)}
+                            className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
+                              active
+                                ? "border-blue-400/40 bg-blue-400/10"
+                                : "border-white/8 bg-black/20 hover:border-white/15 hover:bg-black/30"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="font-medium text-white">{venueName}</span>
+                              <span className="rounded-full bg-white/8 px-2.5 py-1 text-xs text-slate-300">
+                                {venueEvents.length}개
+                              </span>
+                            </div>
+                            <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-400">
+                              {venueEvents.map((event) => event.title).filter(Boolean).join(" · ")}
+                            </p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </aside>
               </div>
             )}
 
             {viewMode === "calendar" && (
-              <div key="view-calendar" className="bg-[#19191B] rounded-[2rem] p-6 md:p-10 shadow-sm animate-in fade-in duration-300">
-                <div className="flex items-center justify-between mb-8 pb-6 border-b border-[#2A2A2E]">
-                  <button onClick={() => setCurrentMonth(new Date(year, month - 1, 1))} className="w-12 h-12 flex items-center justify-center bg-[#2A2A2E] hover:bg-[#3A3A3E] rounded-full text-[#F9FAFB] transition">◀</button>
-                  <h2 className="text-2xl font-bold text-[#F9FAFB]">{year}년 {month + 1}월</h2>
-                  <button onClick={() => setCurrentMonth(new Date(year, month + 1, 1))} className="w-12 h-12 flex items-center justify-center bg-[#2A2A2E] hover:bg-[#3A3A3E] rounded-full text-[#F9FAFB] transition">▶</button>
+              <div className="rounded-[2rem] border border-white/8 bg-white/5 p-5 shadow-[0_20px_60px_rgba(2,6,23,0.24)] md:p-7">
+                <div className="mb-6 flex items-center justify-between gap-4 border-b border-white/8 pb-5">
+                  <button
+                    onClick={() => setCurrentMonth(new Date(year, month - 1, 1))}
+                    className="rounded-full border border-white/10 bg-black/20 px-4 py-2 text-sm text-white transition hover:bg-black/35"
+                  >
+                    이전
+                  </button>
+                  <div className="text-center">
+                    <h2 className="text-2xl font-semibold text-white">{year}년 {month + 1}월</h2>
+                    <p className="mt-1 text-sm text-slate-400">날짜를 누르면 해당 일자의 공연 목록이 열립니다.</p>
+                  </div>
+                  <button
+                    onClick={() => setCurrentMonth(new Date(year, month + 1, 1))}
+                    className="rounded-full border border-white/10 bg-black/20 px-4 py-2 text-sm text-white transition hover:bg-black/35"
+                  >
+                    다음
+                  </button>
                 </div>
 
-                <div className="grid grid-cols-7 gap-2 md:gap-4 mb-4 text-center">
-                  {['일', '월', '화', '수', '목', '금', '토'].map(day => <div key={day} className={`text-[15px] font-bold ${day === '일' ? 'text-[#F04452]' : day === '토' ? 'text-[#3182F6]' : 'text-[#8B95A1]'}`}>{day}</div>)}
+                <div className="grid grid-cols-7 gap-2 text-center text-xs font-semibold text-slate-400 md:gap-3 md:text-sm">
+                  {["일", "월", "화", "수", "목", "금", "토"].map((day) => (
+                    <div key={day} className="py-2">{day}</div>
+                  ))}
                 </div>
 
-                <div className="grid grid-cols-7 gap-2 md:gap-4">
-                  {Array.from({ length: firstDayOfMonth }).map((_, i) => <div key={`empty-${i}`} className="aspect-square"></div>)}
+                <div className="mt-2 grid grid-cols-7 gap-2 md:gap-3">
+                  {Array.from({ length: firstDayOfMonth }).map((_, index) => (
+                    <div key={`empty-${index}`} className="aspect-[0.95] rounded-2xl border border-transparent" />
+                  ))}
 
-                  {Array.from({ length: daysInMonth }).map((_, i) => {
-                    const d = i + 1;
-                    const dateStr = getFormattedDateString(d);
-                    const dayEvents = filteredEvents.filter(e => e.date?.includes(dateStr));
-                    const hasEvents = dayEvents.length > 0;
+                  {Array.from({ length: daysInMonth }).map((_, index) => {
+                    const day = index + 1;
+                    const key = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                    const dayEvents = eventsByDate.get(key) ?? [];
 
                     return (
-                      <div
-                        key={d}
-                        onClick={() => hasEvents && setSelectedDateEvents({ date: dateStr, events: dayEvents })}
-                        className={`aspect-square flex flex-col items-center justify-center rounded-2xl transition-all ${hasEvents ? 'bg-[#3182F6]/10 cursor-pointer hover:bg-[#3182F6]/20' : 'bg-transparent text-[#4E5968]'}`}
+                      <button
+                        key={key}
+                        onClick={() => {
+                          if (dayEvents.length === 0) return;
+                          setSelectedDateEvents({
+                            label: new Intl.DateTimeFormat("ko-KR", {
+                              year: "numeric",
+                              month: "long",
+                              day: "numeric",
+                              weekday: "short",
+                            }).format(new Date(`${key}T00:00:00`)),
+                            events: dayEvents,
+                          });
+                        }}
+                        className={`aspect-[0.95] rounded-2xl border p-2 text-left transition md:p-3 ${
+                          dayEvents.length > 0
+                            ? "border-blue-400/20 bg-blue-400/10 hover:border-blue-300/40 hover:bg-blue-400/15"
+                            : "border-white/8 bg-black/10"
+                        }`}
                       >
-                        <span className={`text-lg md:text-xl font-bold ${hasEvents ? 'text-[#3182F6]' : ''}`}>{d}</span>
-                        {hasEvents && <span className="mt-1 text-[11px] md:text-xs font-bold text-white bg-[#3182F6] px-2 py-0.5 rounded-full shadow-sm">{dayEvents.length}건</span>}
-                      </div>
+                        <div className="flex h-full flex-col justify-between">
+                          <span className="text-sm font-semibold text-white md:text-base">{day}</span>
+                          <div>
+                            {dayEvents.length > 0 ? (
+                              <>
+                                <span className="inline-flex rounded-full bg-blue-500 px-2 py-1 text-[10px] font-semibold text-white md:text-xs">
+                                  {dayEvents.length}개 일정
+                                </span>
+                                <p className="mt-2 line-clamp-2 text-[10px] leading-4 text-slate-200 md:text-xs md:leading-5">
+                                  {dayEvents.slice(0, 2).map((event) => event.title).filter(Boolean).join(" · ")}
+                                </p>
+                              </>
+                            ) : (
+                              <span className="text-[10px] text-slate-500 md:text-xs">일정 없음</span>
+                            )}
+                          </div>
+                        </div>
+                      </button>
                     );
                   })}
                 </div>
               </div>
             )}
-          </>
+          </section>
         )}
 
-        {/* 팝업 모달 */}
-        {selectedVenue && (
-          <Modal title={`${selectedVenue}`} onClose={() => setSelectedVenue(null)}>
+        {selectedVenue && selectedVenueEvents.length > 0 && (
+          <Modal title={`${selectedVenue} 일정`} onClose={() => setSelectedVenue(null)}>
             <div className="space-y-4">
-              {sortEvents(filteredEvents.filter(e => e.venueName === selectedVenue)).map(event => (
-                <EventCard key={event.id} event={event} isCompact />
+              {selectedVenueEvents.map((event) => (
+                <EventCard key={event.id} event={event} compact />
               ))}
             </div>
           </Modal>
         )}
 
         {selectedDateEvents && (
-          <Modal title={`${selectedDateEvents.date} 공연 일정`} onClose={() => setSelectedDateEvents(null)}>
+          <Modal title={selectedDateEvents.label} onClose={() => setSelectedDateEvents(null)}>
             <div className="space-y-4">
-              {sortEvents(selectedDateEvents.events).map(event => (
-                <EventCard key={event.id} event={event} isCompact />
+              {selectedDateEvents.events.map((event) => (
+                <EventCard key={event.id} event={event} compact />
               ))}
             </div>
           </Modal>
@@ -250,68 +565,122 @@ export default function Home() {
   );
 }
 
-// 토스 스타일 둥글고 부드러운 카드
-function EventCard({ event, isCompact = false }: { event: EventItem, isCompact?: boolean }) {
-  const targetUrl = formatUrl(event.sourceUrl);
-
+function SummaryCard({ label, value, hint }: { label: string; value: string; hint: string }) {
   return (
-    <a href={targetUrl} target={targetUrl !== "#" ? "_blank" : "_self"} rel="noopener noreferrer" className="block h-full outline-none focus:ring-2 focus:ring-[#3182F6] rounded-3xl active:scale-[0.98] transition-transform">
-      <div className={`bg-[#19191B] hover:bg-[#222225] transition-colors duration-200 flex flex-col h-full overflow-hidden ${isCompact ? 'p-5 rounded-3xl' : 'p-6 md:p-7 rounded-[2rem]'}`}>
-
-        {event.posterUrl && (
-          <div className={`w-full bg-[#101010] rounded-2xl overflow-hidden ${isCompact ? 'mb-4 aspect-[4/3]' : 'mb-5 aspect-square'}`}>
-            <img src={event.posterUrl} alt="포스터" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
-          </div>
-        )}
-
-        <h2 className={`${isCompact ? 'text-lg' : 'text-xl'} font-bold text-[#F9FAFB] mb-4 line-clamp-2 leading-snug tracking-tight`}>{event.title || "제목 없는 공연"}</h2>
-
-        <div className="space-y-3 text-[15px] font-medium text-[#B0B8C1] flex-1">
-          {(event.date || event.time) && (
-            <p className="flex items-start gap-4">
-              <span className="shrink-0 text-[#8B95A1] w-8">일시</span>
-              <span className="text-[#F9FAFB]">{event.date} {event.time}</span>
-            </p>
-          )}
-          {event.venueName && (
-            <p className="flex items-start gap-4">
-              <span className="shrink-0 text-[#8B95A1] w-8">장소</span>
-              <span className="text-[#F9FAFB]">{event.venueName}</span>
-            </p>
-          )}
-          {event.artistNames && (
-            <p className="flex items-start gap-4">
-              <span className="shrink-0 text-[#8B95A1] w-8">출연</span>
-              <span className="text-[#F9FAFB] line-clamp-2">{event.artistNames}</span>
-            </p>
-          )}
-          {event.price && (
-            <p className="flex items-start gap-4 pt-1">
-              <span className="shrink-0 text-[#8B95A1] w-8 mt-0.5">티켓</span>
-              <span className="text-[#3182F6] font-bold text-lg">{event.price}</span>
-            </p>
-          )}
-        </div>
-      </div>
-    </a>
+    <div className="rounded-[1.5rem] border border-white/10 bg-white/6 p-4 backdrop-blur">
+      <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-400">{label}</p>
+      <p className="mt-3 text-2xl font-semibold text-white">{value}</p>
+      <p className="mt-1 text-xs text-slate-400">{hint}</p>
+    </div>
   );
 }
 
-// 깔끔한 팝업
-function Modal({ title, children, onClose }: { title: string, children: React.ReactNode, onClose: () => void }) {
+function ViewButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
   return (
-    <div className="fixed inset-0 z-50 bg-[#000000]/80 flex items-end md:items-center justify-center animate-in fade-in duration-200" onClick={onClose}>
-      <div className="bg-[#19191B] w-full max-w-lg rounded-t-[2rem] md:rounded-[2rem] p-6 md:p-8 shadow-2xl relative max-h-[85vh] flex flex-col animate-in slide-in-from-bottom-10 md:slide-in-from-bottom-0" onClick={e => e.stopPropagation()}>
-        {/* 모바일 손잡이 */}
-        <div className="w-12 h-1.5 bg-[#2A2A2E] rounded-full mx-auto mb-6 md:hidden"></div>
+    <button
+      onClick={onClick}
+      className={`rounded-xl px-4 py-3 text-sm font-semibold transition ${
+        active ? "bg-blue-500 text-white shadow-lg shadow-blue-500/20" : "text-slate-300 hover:bg-white/8"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
 
-        <div className="flex justify-between items-center mb-6 pb-2">
-          <h3 className="text-xl md:text-2xl font-extrabold text-[#F9FAFB] tracking-tight">{title}</h3>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center bg-[#2A2A2E] hover:bg-[#3A3A3E] rounded-full text-[#B0B8C1] transition font-bold text-lg">✕</button>
+function EventCard({ event, compact = false }: { event: EventItem; compact?: boolean }) {
+  const externalUrl = formatExternalUrl(event.sourceUrl);
+  const priceLines = formatPriceLines(event.price);
+
+  return (
+    <Link
+      href={`/events/${event.id}`}
+      className={`group block overflow-hidden rounded-[1.75rem] border border-white/8 bg-[linear-gradient(180deg,rgba(18,24,38,0.95),rgba(9,12,18,0.95))] p-5 shadow-[0_20px_50px_rgba(2,6,23,0.28)] transition duration-200 hover:-translate-y-1 hover:border-blue-400/25 hover:shadow-[0_28px_70px_rgba(2,6,23,0.36)] ${compact ? "p-4" : ""}`}
+    >
+      {event.posterUrl ? (
+        <div className={`overflow-hidden rounded-[1.3rem] bg-black/25 ${compact ? "mb-4 aspect-[16/10]" : "mb-5 aspect-[5/4]"}`}>
+          <img src={event.posterUrl} alt={event.title || "공연 포스터"} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]" referrerPolicy="no-referrer" />
         </div>
-        <div className="overflow-y-auto custom-scrollbar flex-1 pr-1 pb-4">
-          {children}
+      ) : (
+        <div className={`mb-5 flex items-center justify-center rounded-[1.3rem] border border-dashed border-white/10 bg-white/5 text-sm text-slate-400 ${compact ? "aspect-[16/10]" : "aspect-[5/4]"}`}>
+          포스터 이미지 없음
         </div>
+      )}
+
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-200/80">
+            {formatDateLabel(event.date)}
+          </p>
+          <h2 className={`mt-2 font-semibold leading-snug text-white ${compact ? "text-lg" : "text-xl"}`}>
+            {event.title || "제목 없는 공연"}
+          </h2>
+        </div>
+        {externalUrl ? (
+          <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-medium text-slate-300">
+            예매/원문 있음
+          </span>
+        ) : null}
+      </div>
+
+      <div className="mt-5 space-y-3 text-sm text-slate-300">
+        <InfoRow label="시간" value={[event.date, event.time].filter(Boolean).join(" ") || "미정"} />
+        <InfoRow label="장소" value={event.venueName || "미정"} />
+        <InfoRow label="출연" value={event.artistNames || "추가 예정"} clamp />
+      </div>
+
+      {priceLines.length > 0 && (
+        <div className="mt-5 rounded-[1.2rem] border border-blue-400/15 bg-blue-400/8 p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-200">티켓</p>
+          <div className="mt-3 space-y-2">
+            {priceLines.map((line) => (
+              <p key={line} className="text-sm font-semibold text-white">
+                {line}
+              </p>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-blue-200">
+        상세 보기
+        <span className="transition group-hover:translate-x-1">→</span>
+      </div>
+    </Link>
+  );
+}
+
+function InfoRow({ label, value, clamp = false }: { label: string; value: string; clamp?: boolean }) {
+  return (
+    <div className="flex gap-4">
+      <span className="w-10 shrink-0 text-slate-500">{label}</span>
+      <span className={`text-white ${clamp ? "line-clamp-2" : ""}`}>{value}</span>
+    </div>
+  );
+}
+
+function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-3xl rounded-[2rem] border border-white/10 bg-[#0b1020] p-5 shadow-[0_30px_80px_rgba(2,6,23,0.56)] md:p-6">
+        <div className="mb-5 flex items-center justify-between gap-4">
+          <h2 className="text-xl font-semibold text-white">{title}</h2>
+          <button
+            onClick={onClose}
+            className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-slate-200 transition hover:bg-white/10"
+          >
+            닫기
+          </button>
+        </div>
+        <div className="max-h-[70vh] overflow-y-auto pr-1 custom-scrollbar">{children}</div>
       </div>
     </div>
   );

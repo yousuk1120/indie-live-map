@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase/firestore";
@@ -13,11 +13,44 @@ type EventItem = {
   venueName?: string;
   artistNames?: string;
   sourceUrl?: string;
+  price?: string;
+  posterUrl?: string;
 };
+
+function formatExternalUrl(value?: string) {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed;
+  if (trimmed.startsWith("@")) return `https://instagram.com/${trimmed.slice(1)}`;
+  if (/^(www\.)?[\w.-]+\.[a-z]{2,}(\/.*)?$/i.test(trimmed) && !trimmed.includes(" ")) {
+    return `https://${trimmed}`;
+  }
+  return null;
+}
+
+function formatPriceLines(value?: string) {
+  if (!value) return [] as string[];
+  let normalized = value
+    .replace(/\s*\/\s*/g, ", ")
+    .replace(/\s*\|\s*/g, ", ")
+    .replace(/\s*·\s*/g, ", ");
+
+  normalized = normalized
+    .replace(/\s*,\s*(?=(예매|현매|예판|당일|door))/gi, "\n")
+    .replace(/(?<!^)(?=(예매|현매|예판|당일|door))/gi, "\n");
+
+  const parts = normalized
+    .split(/\n|,(?=\s*(예매|현매|예판|당일|door|무료|일반|학생))/i)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  return parts.length > 0 ? parts : [value.trim()];
+}
 
 export default function EventDetailPage() {
   const router = useRouter();
-  const params = useParams(); // Next.js 14/15 환경 모두에서 안전한 클라이언트 파라미터 접근법
+  const params = useParams();
   const eventId = params.id as string;
 
   const [eventData, setEventData] = useState<EventItem | null>(null);
@@ -31,11 +64,11 @@ export default function EventDetailPage() {
       try {
         const docRef = doc(db, "events", eventId);
         const docSnap = await getDoc(docRef);
-        
+
         if (docSnap.exists()) {
           setEventData({ id: docSnap.id, ...(docSnap.data() as Omit<EventItem, "id">) });
         } else {
-          setError(true); // 데이터가 없는 경우
+          setError(true);
         }
       } catch (err) {
         console.error("이벤트 문서 불러오기 에러:", err);
@@ -48,97 +81,118 @@ export default function EventDetailPage() {
     fetchEventDetail();
   }, [eventId]);
 
+  const externalUrl = useMemo(() => formatExternalUrl(eventData?.sourceUrl), [eventData?.sourceUrl]);
+  const priceLines = useMemo(() => formatPriceLines(eventData?.price), [eventData?.price]);
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-black text-white flex items-center justify-center">
-        <p className="text-zinc-500 font-medium">공연 상세 정보를 불러오는 중입니다...</p>
+      <div className="flex min-h-screen items-center justify-center px-6 text-center text-slate-300">
+        공연 상세 정보를 불러오는 중입니다.
       </div>
     );
   }
 
   if (error || !eventData) {
     return (
-      <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-6 text-center">
-        <h1 className="text-2xl font-bold mb-4 text-white">해당 공연 정보를 찾을 수 없습니다.</h1>
-        <p className="text-zinc-500 mb-8">URL이 잘못되었거나, 관리자에 의해 삭제된 공연일 수 있습니다.</p>
-        <button 
-          onClick={() => router.back()}
-          className="bg-zinc-800 hover:bg-zinc-700 text-white px-6 py-2.5 rounded-lg transition font-medium"
+      <div className="flex min-h-screen flex-col items-center justify-center px-6 text-center">
+        <h1 className="text-2xl font-semibold text-white">공연 정보를 찾을 수 없어요.</h1>
+        <p className="mt-3 max-w-md text-sm leading-6 text-slate-400">
+          URL이 잘못되었거나, 삭제된 공연일 수 있습니다.
+        </p>
+        <button
+          onClick={() => router.push("/")}
+          className="mt-8 rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
         >
-          돌아가기
+          홈으로 돌아가기
         </button>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-black text-white p-6">
-      <div className="max-w-3xl mx-auto pt-8">
-        {/* 뒤로 가기 버튼 */}
-        <button 
+    <div className="min-h-screen px-4 py-8 md:px-6 md:py-12">
+      <div className="mx-auto max-w-5xl">
+        <button
           onClick={() => router.back()}
-          className="text-zinc-400 hover:text-white flex items-center gap-2 mb-8 transition group w-fit font-medium"
+          className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-white/10"
         >
-          <svg className="w-5 h-5 group-hover:-translate-x-1.5 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-          </svg>
-          뒤로 가기
+          ← 뒤로 가기
         </button>
 
-        {/* 상세 뷰 컨테이너 */}
-        <article className="bg-[#111111] border border-zinc-800 rounded-3xl p-8 md:p-12 shadow-2xl relative overflow-hidden">
-          {/* 가벼운 데코레이션 요소 */}
-          <div className="absolute top-0 right-0 w-32 h-32 bg-zinc-800/10 rounded-full blur-3xl -translate-y-10 translate-x-10"></div>
-          
-          <h1 className="text-3xl md:text-5xl font-extrabold text-white mb-10 leading-snug tracking-tight">
-            {eventData.title}
-          </h1>
+        <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(17,24,39,0.94),rgba(8,11,18,0.96))] shadow-[0_30px_80px_rgba(2,6,23,0.5)]">
+          <div className="grid gap-0 lg:grid-cols-[1.05fr_0.95fr]">
+            <div className="border-b border-white/8 bg-black/20 p-5 lg:border-b-0 lg:border-r lg:p-8">
+              {eventData.posterUrl ? (
+                <img
+                  src={eventData.posterUrl}
+                  alt={eventData.title || "공연 포스터"}
+                  className="h-full max-h-[720px] w-full rounded-[1.5rem] object-cover"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <div className="flex min-h-[420px] items-center justify-center rounded-[1.5rem] border border-dashed border-white/10 bg-white/5 text-slate-400">
+                  등록된 포스터가 없습니다.
+                </div>
+              )}
+            </div>
 
-          <div className="space-y-7 text-lg relative z-10">
-            {/* 날짜와 시간 */}
-            {(eventData.date || eventData.time) && (
-              <div className="flex flex-col sm:flex-row gap-2 border-b border-zinc-800/60 pb-5">
-                <span className="text-zinc-500 font-medium min-w-[120px]">일시</span>
-                <span className="text-zinc-100 font-semibold">{eventData.date} {eventData.time}</span>
+            <div className="p-6 md:p-8 lg:p-10">
+              <span className="inline-flex rounded-full border border-blue-400/25 bg-blue-400/10 px-3 py-1 text-xs font-semibold tracking-[0.16em] text-blue-200">
+                라이브클럽 · 인디공연장 일정
+              </span>
+              <h1 className="mt-5 text-3xl font-semibold leading-tight text-white md:text-4xl">
+                {eventData.title || "제목 없는 공연"}
+              </h1>
+
+              <div className="mt-8 space-y-4 rounded-[1.5rem] border border-white/8 bg-white/5 p-5">
+                <DetailRow label="일시" value={[eventData.date, eventData.time].filter(Boolean).join(" ") || "미정"} />
+                <DetailRow label="장소" value={eventData.venueName || "미정"} />
+                <DetailRow label="출연" value={eventData.artistNames || "추가 예정"} />
               </div>
-            )}
-            
-            {/* 장소 */}
-            {eventData.venueName && (
-              <div className="flex flex-col sm:flex-row gap-2 border-b border-zinc-800/60 pb-5">
-                <span className="text-zinc-500 font-medium min-w-[120px]">장소</span>
-                <span className="text-zinc-100 font-semibold">{eventData.venueName}</span>
-              </div>
-            )}
-            
-            {/* 아티스트 */}
-            {eventData.artistNames && (
-              <div className="flex flex-col sm:flex-row gap-2 border-b border-zinc-800/60 pb-5">
-                <span className="text-zinc-500 font-medium min-w-[120px]">출연자</span>
-                <span className="text-zinc-100 font-semibold max-w-xl leading-relaxed">{eventData.artistNames}</span>
-              </div>
-            )}
-            
-            {/* 원본 링크 */}
-            {eventData.sourceUrl && (
-              <div className="flex flex-col sm:flex-row sm:items-center gap-2 pt-4">
-                <span className="text-zinc-500 font-medium min-w-[120px]">예매 및 안내</span>
-                <a 
-                  href={eventData.sourceUrl} 
-                  target="_blank" 
-                  rel="noreferrer" 
-                  className="inline-flex items-center gap-2 text-blue-400 hover:text-blue-300 transition font-bold underline underline-offset-4 decoration-blue-500/30 hover:decoration-blue-400"
-                >
-                  원본 관련 링크 열기
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                  </svg>
-                </a>
-              </div>
-            )}
+
+              {priceLines.length > 0 && (
+                <div className="mt-6 rounded-[1.5rem] border border-blue-400/20 bg-blue-400/10 p-5">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-200">티켓 정보</p>
+                  <div className="mt-4 space-y-2">
+                    {priceLines.map((line) => (
+                      <p key={line} className="text-base font-semibold text-white">
+                        {line}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {eventData.sourceUrl && (
+                <div className="mt-6 rounded-[1.5rem] border border-white/8 bg-white/5 p-5">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">예매 / 안내</p>
+                  {externalUrl ? (
+                    <a
+                      href={externalUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-4 inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-slate-200"
+                    >
+                      예매 / 원문 열기 ↗
+                    </a>
+                  ) : (
+                    <p className="mt-4 whitespace-pre-line text-sm leading-6 text-slate-200">{eventData.sourceUrl}</p>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-        </article>
+        </div>
       </div>
+    </div>
+  );
+}
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col gap-1 border-b border-white/8 pb-4 last:border-b-0 last:pb-0 sm:flex-row sm:gap-4">
+      <span className="min-w-[72px] text-sm text-slate-400">{label}</span>
+      <span className="text-base font-medium text-white">{value}</span>
     </div>
   );
 }

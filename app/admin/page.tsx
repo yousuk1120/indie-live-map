@@ -7,7 +7,7 @@ import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, serve
 import { auth } from "@/lib/firebase/auth";
 import { db } from "@/lib/firebase/firestore";
 
-type EventItem = { id: string; title?: string; date?: string; time?: string; venueName?: string; artistNames?: string; sourceUrl?: string; price?: string; };
+type EventItem = { id: string; title?: string; date?: string; time?: string; venueName?: string; artistNames?: string; sourceUrl?: string; price?: string; posterUrl?: string; };
 type SourceAccount = { id: string; accountName: string; category: "공연장" | "밴드" | "기획사"; isActive: boolean; };
 type CandidateEvent = { 
   id: string; 
@@ -158,7 +158,7 @@ function EventsTab() {
               <Input label="참여 아티스트" value={artistNames} onChange={setArtistNames} />
               <Input label="티켓 가격" value={price} onChange={setPrice} />
             </div>
-            <Input label="관련 예매 URL" type="url" value={sourceUrl} onChange={setSourceUrl} />
+            <Input label="예매 링크 / 안내" value={sourceUrl} onChange={setSourceUrl} placeholder="https://... 또는 예매 오픈 20:00" />
             <div className="pt-6 flex gap-3">
               <button disabled={isSubmitting} className={`flex-1 py-4 rounded-2xl font-semibold transition-all duration-300 ${editingId ? "bg-amber-500 text-black hover:bg-amber-400" : "bg-white text-black hover:bg-zinc-200"} disabled:opacity-50`}>
                 {editingId ? "변경사항 발행" : "추가하기"}
@@ -499,7 +499,7 @@ function CandidatesTab() {
     try { 
       // 추가
       await addDoc(collection(db,"events"), {
-        title:apTitle, date:apDate, time:apTime, venueName:apVenue, artistNames:apArtists, sourceUrl:apTicket, price:apPrice, createdAt:serverTimestamp()
+        title:apTitle, date:apDate, time:apTime, venueName:apVenue, artistNames:apArtists, sourceUrl:apTicket, price:apPrice, posterUrl: approvingItem.posterUrl || "", createdAt:serverTimestamp()
       });
       // 치우기
       await deleteDoc(doc(db,"candidate_events",approvingItem.id)); 
