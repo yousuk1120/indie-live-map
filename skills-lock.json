@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "skills": {
+    "firebase-auth-basics": {
+      "source": "firebase/agent-skills",
+      "sourceType": "github",
+      "computedHash": "3d85cfda10a68f0afabdad69d40ad83357f47acf9f5ba4d88a23182f6a59a5b4"
+    },
+    "firebase-basics": {
+      "source": "firebase/agent-skills",
+      "sourceType": "github",
+      "computedHash": "f19996128577803fef0ff041c8be37a858e0dae01c3f35080e932f7a61ad341c"
+    },
+    "firebase-firestore-standard": {
+      "source": "firebase/agent-skills",
+      "sourceType": "github",
+      "computedHash": "c8f877055f84a29eeece4c7949edcd623bb8f129b34cdece7e0ea8d57202cc60"
+    },
+    "firebase-hosting-basics": {
+      "source": "firebase/agent-skills",
+      "sourceType": "github",
+      "computedHash": "0688a8ad6cb72149924352cc47e6cc8bf815e944b636a67b9da225cc9b025afc"
+    },
+    "firebase-local-env-setup": {
+      "source": "firebase/agent-skills",
+      "sourceType": "github",
+      "computedHash": "bb96442dbc29cb15cd6a82fb5771309bc8ff64c668f4a0c51ccc28b2da468218"
+    }
+  }
+}

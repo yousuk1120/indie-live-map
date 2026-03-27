@@ -1,36 +1,49 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 인디 공연 앱 (Indie Live App)
 
-## Getting Started
+Firebase Authentication과 Firestore를 기반으로 구축된 인디 공연 전용 조회 및 관리 애플리케이션입니다.
 
-First, run the development server:
+## 🗂 라우트 구조 (Route Structure)
 
+현재 프로젝트는 명확한 역할 분담을 위해 3개의 주요 라우트를 갖추고 있습니다:
+
+- `/` (홈 화면) 
+  - 일반 사용자가 접근하여 현재 등록된 공연 목록을 조회하는 **전용 뷰어 페이지**입니다. 관리자 전용 폼이나 코드는 이 경로에 포함되지 않습니다.
+
+- `/login` (인증 화면)
+  - 관리자 전용 페이지(`/admin`)에 진입하기 위한 화면입니다. 이메일/비밀번호 방식과 Google 로그인을 지원합니다. 로그인 완료 시 자동으로 관리자 페이지로 리다이렉트됩니다.
+
+- `/admin` (관리자 화면)
+  - 로그인된 관리자만 접근하여 새로운 공연을 **등록**하거나 리스트를 열람 후 **삭제**할 수 있는 공간입니다. 비로그인 유저가 접근할 경우 즉시 `/login` 경로로 강제 튕겨나가는 **라우트 보호(Route Protection)**가 적용되어 있습니다.
+
+> **참고**: 기존에 사용되었던 단위 기능 테스트용 `/probe` 라우트 및 파일들은 완전히 지워져 프로젝트가 한층 가벼워졌습니다.
+
+---
+
+## 🛠 Firebase 및 백엔드 설정
+
+모든 Firebase 의존성은 아래 3개의 주요 파일(`lib/firebase/`)을 거쳐 공통으로 가져와 재사용(`imports 경로 정리 완료`)됩니다. 중복 파일 없이 효율적으로 구성되어 있습니다.
+
+- `lib/firebase/client.ts`: 가장 먼저 Firebase Config를 주입받아 앱을 초기화합니다.
+- `lib/firebase/auth.ts`: `client.ts`의 앱 인스턴스를 활용해 Auth 환경을 설정하고, 이메일 혹은 구글 제공자를 전역에 내보냅니다.
+- `lib/firebase/firestore.ts`: 앱의 데이터베이스 인스턴스를 관리하며, 모든 공연 컬렉션(`events`) 쿼리에서 호출됩니다.
+
+---
+
+## 🚀 구동 및 테스트 방법
+
+### 1. 로컬 환경 실행
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 2. 수동 검증(테스트) 순서 가이드
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. **메인 화면 조회**
+   브라우저에서 [http://localhost:3000](http://localhost:3000)으로 접속하여 등록된 공연 리스트(혹은 "등록된 데이터가 없다"는 빈 화면 안내)를 확인합니다.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+2. **비로그인 라우트 보호 체인 확인**
+   브라우저 '시크릿 창'을 열어 [http://localhost:3000/admin](http://localhost:3000/admin)으로 접속을 시도합니다. 정상적으로 보호되어 [http://localhost:3000/login](http://localhost:3000/login)으로 튕기는지 확인합니다.
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+3. **데이터 생성 및 삭제 실시간 동기화 확인**
+   로그인 창에서 권한을 얻고 `/admin`에 들어가서 임의의 공연 정보(예: "홍대 테스트 공연")를 등록합니다. [등록 완료] 버튼을 누르자마자 우측 영역에 새로고침 없이 항목이 뜨는 것을 확인합니다.
+   목록란의 [삭제] 버튼을 클릭 시, 화면에서 공연이 실시간으로 부드럽게 지워지는지까지 확인하시면 모든 데이터 연동 테스트가 통과된 것입니다.
