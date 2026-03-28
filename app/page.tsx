@@ -93,7 +93,6 @@ function extractExternalUrl(value?: string) {
   const handle = raw.match(/@[A-Za-z0-9._]{2,30}/);
   if (handle) return `https://www.instagram.com/${handle[0].slice(1)}`;
 
-  // ★ 96번 줄 오타 수정 완료: [A-Za-z] 로 대괄호 짝을 맞췄습니다.
   const looseUrl = raw.match(/(?:www\.)?[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?:\/[^\s)]*)?/);
   if (looseUrl && !raw.includes(" ")) return `https://${looseUrl[0].replace(/^https?:\/\//i, "")}`;
 
