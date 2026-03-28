@@ -1,3 +1,275 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { onAuthStateChanged, signOut } from "firebase/auth";
+import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, serverTimestamp, where, getDocs } from "firebase/firestore";
+import { auth } from "@/lib/firebase/auth";
+import { db } from "@/lib/firebase/firestore";
+
+type EventItem = {
+  id: string;
+  title?: string;
+  date?: string;
+  time?: string;
+  venueName?: string;
+  artistNames?: string;
+  sourceUrl?: string;
+  instagramUrl?: string;
+  price?: string;
+};
+
+type SourceAccount = {
+  id: string;
+  accountName: string;
+  category: "공연장" | "밴드" | "기획사";
+  isActive: boolean;
+};
+
+type CandidateEvent = {
+  id: string;
+  rawPostId?: string;
+  instaLink: string;
+  caption: string;
+  posterUrl: string;
+  parsedTitle?: string;
+  parsedDate?: string;
+  parsedTime?: string;
+  parsedVenue?: string;
+  parsedArtists?: string;
+  parsedTicket?: string;
+  parsedPrice?: string;
+};
+
+export default function AdminPage() {
+  const router = useRouter();
+  const [loadingAuth, setLoadingAuth] = useState(true);
+  const [activeTab, setActiveTab] = useState<"events" | "sources" | "candidates">("events");
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (!user) router.push("/login");
+      else setLoadingAuth(false);
+    });
+    return () => unsubscribe();
+  }, [router]);
+
+  const handleLogout = async () => {
+    await signOut(auth);
+    router.push("/login");
+  };
+
+  if (loadingAuth) {
+    return <div className="min-h-screen bg-[#0a0a0a] text-white flex items-center justify-center">Loading...</div>;
+  }
+
+  return (
+    <div className="min-h-screen bg-[#0a0a0a] text-zinc-200 selection:bg-white/20 font-sans">
+      <div className="max-w-[1400px] mx-auto p-4 md:p-8">
+
+        {/* Header */}
+        <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10 pb-6 border-b border-white/5">
+          <div>
+            <h1 className="text-2xl md:text-3xl font-semibold tracking-tight text-white mb-2">Workspace</h1>
+            <p className="text-zinc-500 text-sm">인디 라이브 인벤토리 및 자동화 파이프라인 관리</p>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="bg-white/5 hover:bg-white/10 text-zinc-300 px-5 py-2.5 rounded-2xl text-sm font-medium transition duration-200 w-fit"
+          >
+            로그아웃
+          </button>
+        </header>
+
+        {/* Modern Pill Tabs */}
+        <div className="flex flex-wrap gap-2 mb-10 p-1.5 bg-[#121212] rounded-3xl w-fit border border-white/5">
+          <TabButton active={activeTab === "events"} onClick={() => setActiveTab("events")} label="본공연 일정 (events)" icon="🎸" />
+          <TabButton active={activeTab === "sources"} onClick={() => setActiveTab("sources")} label="수집 타겟 풀 (source_accounts)" icon="📡" />
+          <TabButton active={activeTab === "candidates"} onClick={() => setActiveTab("candidates")} label="후보 AI 검수 큐" icon="🤖" />
+        </div>
+
+        {/* Tab Content */}
+        <main className="animate-in fade-in duration-500">
+          {activeTab === "events" && <EventsTab />}
+          {activeTab === "sources" && <SourcesTab />}
+          {activeTab === "candidates" && <CandidatesTab />}
+        </main>
+      </div>
+    </div>
+  );
+}
+
+function TabButton({ active, onClick, label, icon }: { active: boolean, onClick: () => void, label: string, icon: string }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-2.5 px-6 py-3 rounded-2xl text-sm font-medium transition-all duration-300 ${active
+        ? "bg-white/10 text-white shadow-sm ring-1 ring-white/10"
+        : "text-zinc-500 hover:text-zinc-300 hover:bg-white/5"
+        }`}
+    >
+      <span className="opacity-80 text-base">{icon}</span>
+      {label}
+    </button>
+  );
+}
+
+// ----------------------------------------------------------------------
+// [Tab 1] EventsTab (기존 공연 일정 관리 유지)
+// ----------------------------------------------------------------------
+function EventsTab() {
+  const [events, setEvents] = useState<EventItem[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [title, setTitle] = useState("");
+  const [date, setDate] = useState("");
+  const [time, setTime] = useState("");
+  const [venueName, setVenueName] = useState("");
+  const [artistNames, setArtistNames] = useState("");
+  const [sourceUrl, setSourceUrl] = useState("");
+  const [instagramUrl, setInstagramUrl] = useState("");
+  const [price, setPrice] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    const q = query(collection(db, "events"));
+    return onSnapshot(q, (snapshot) => {
+      setEvents(snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as EventItem)));
+    });
+  }, []);
+
+  const handleEditClick = (item: EventItem) => {
+    setEditingId(item.id);
+    setTitle(item.title || "");
+    setDate(item.date || "");
+    setTime(item.time || "");
+    setVenueName(item.venueName || "");
+    setArtistNames(item.artistNames || "");
+    setSourceUrl(item.sourceUrl || "");
+    setInstagramUrl(item.instagramUrl || "");
+    setPrice(item.price || "");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setTitle("");
+    setDate("");
+    setTime("");
+    setVenueName("");
+    setArtistNames("");
+    setSourceUrl("");
+    setInstagramUrl("");
+    setPrice("");
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) return;
+    setIsSubmitting(true);
+    try {
+      if (editingId) {
+        await updateDoc(doc(db, "events", editingId), {
+          title, date, time, venueName, artistNames, sourceUrl, instagramUrl, price,
+        });
+      } else {
+        await addDoc(collection(db, "events"), {
+          title, date, time, venueName, artistNames, sourceUrl, instagramUrl, price, createdAt: serverTimestamp(),
+        });
+      }
+      handleCancelEdit();
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!window.confirm("공연을 완전 삭제하시겠습니까?")) return;
+    if (editingId === id) handleCancelEdit();
+    await deleteDoc(doc(db, "events", id));
+  };
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-10">
+      <div className="lg:col-span-4 flex flex-col gap-6 self-start lg:sticky lg:top-8 max-h-[calc(100vh-4rem)] overflow-y-auto px-1 pb-4 custom-scrollbar">
+        <div className="bg-[#121212] border border-white/5 rounded-[2rem] p-7 md:p-8 shadow-2xl relative overflow-hidden group">
+          {editingId ? (
+            <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-amber-500/40 to-transparent"></div>
+          ) : (
+            <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-blue-500/40 to-transparent"></div>
+          )}
+          <h2 className="text-lg font-semibold mb-8 text-white flex items-center gap-3">
+            {editingId ? (
+              <><span className="w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.6)]"></span>수정하기</>
+            ) : (
+              <><span className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]"></span>새 공연 수동 등록</>
+            )}
+          </h2>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <Input label="공연 제목" value={title} onChange={setTitle} required />
+            <div className="grid grid-cols-2 gap-4">
+              <Input label="날짜" placeholder="YY-MM-DD" value={date} onChange={setDate} />
+              <Input label="시간" placeholder="19:00" value={time} onChange={setTime} />
+            </div>
+            <Input label="장소명" value={venueName} onChange={setVenueName} />
+            <div className="grid grid-cols-2 gap-4">
+              <Input label="참여 아티스트" value={artistNames} onChange={setArtistNames} />
+              <Input label="티켓 가격" value={price} onChange={setPrice} />
+            </div>
+            <Input label="예매 / 안내 링크" type="text" value={sourceUrl} onChange={setSourceUrl} />
+            <Input label="인스타그램 링크" type="text" value={instagramUrl} onChange={setInstagramUrl} />
+
+            <div className="flex gap-4 pt-2">
+              <button disabled={isSubmitting} className={`flex-1 py-4 rounded-2xl font-semibold transition-all duration-300 ${editingId ? "bg-amber-500 text-black hover:bg-amber-400" : "bg-white text-black hover:bg-zinc-200"} disabled:opacity-50`}>
+                {editingId ? "변경사항 발행" : "추가하기"}
+              </button>
+              {editingId && (
+                <button type="button" onClick={handleCancelEdit} disabled={isSubmitting} className="px-6 bg-white/5 border border-white/5 text-zinc-400 hover:text-white rounded-2xl font-medium transition-all">취소</button>
+              )}
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div className="lg:col-span-8 flex flex-col gap-5">
+        <div className="flex items-center justify-between px-2">
+          <h2 className="text-lg font-semibold text-white">등록된 항목 (events)</h2>
+          <span className="text-xs font-semibold bg-white/10 text-zinc-300 px-3 py-1.5 rounded-full">{events.length}</span>
+        </div>
+        {events.length === 0 ? (
+          <div className="bg-[#121212] border border-white/5 rounded-[2rem] p-16 text-center flex flex-col items-center justify-center">
+            <p className="text-zinc-500 font-medium">아직 승인되거나 수동 등록된 공연이 없습니다.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {events.map(ev => (
+              <div key={ev.id} className={`bg-[#121212] border ${editingId === ev.id ? 'border-amber-500/30' : 'border-white/5'} rounded-3xl p-6 transition-all group flex flex-col`}>
+                <div className="flex-1">
+                  <h3 className="font-semibold text-lg text-white mb-5 line-clamp-2 leading-snug">{ev.title}</h3>
+                  <div className="space-y-3 text-sm text-zinc-400">
+                    {ev.date && <p className="flex gap-4"><span className="text-zinc-600 font-medium shrink-0">일시</span> <span className="text-zinc-200">{ev.date} {ev.time}</span></p>}
+                    {ev.venueName && <p className="flex gap-4"><span className="text-zinc-600 font-medium shrink-0">장소</span> <span className="text-zinc-200">{ev.venueName}</span></p>}
+                    {ev.artistNames && <p className="flex gap-4"><span className="text-zinc-600 font-medium shrink-0">출연</span> <span className="text-zinc-200 line-clamp-1">{ev.artistNames}</span></p>}
+                    {ev.price && <p className="flex gap-4"><span className="text-zinc-600 font-medium shrink-0">가격</span> <span className="text-pink-300 font-bold">{ev.price}</span></p>}
+                    {ev.sourceUrl && (
+                      <a href={ev.sourceUrl} target="_blank" rel="noreferrer" className="inline-block mt-4 text-xs font-medium text-blue-400 hover:text-blue-300 underline underline-offset-4 decoration-blue-500/30">원본 링크로 이동</a>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-8 flex gap-2">
+                  <button onClick={() => handleEditClick(ev)} className="flex-1 bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white py-3 rounded-2xl text-xs font-semibold transition">수정</button>
+                  <button onClick={() => handleDelete(ev.id)} className="flex-1 bg-red-500/5 hover:bg-red-500/10 text-red-400 hover:text-red-300 py-3 rounded-2xl text-xs font-semibold transition">삭제</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ----------------------------------------------------------------------
 // [Tab 2] SourcesTab (수집용 타겟 관리 - source_accounts)
 // ----------------------------------------------------------------------
@@ -327,6 +599,7 @@ function CandidatesTab() {
               <span className="text-zinc-300 block mb-2 font-bold font-sans">원문 캡션 참고:</span>
               {approvingItem.caption || "수집된 캡션 기록이 없습니다."}
             </div>
+
             <form onSubmit={handleApprove} className="space-y-4">
               <Input label="공연 제목 (필수)" value={apTitle} onChange={setApTitle} required />
               <div className="grid grid-cols-2 gap-4">
@@ -339,6 +612,7 @@ function CandidatesTab() {
                 <Input label="티켓 가격" value={apPrice} onChange={setApPrice} />
               </div>
               <Input label="예매처 링크 (또는 안내사항)" value={apTicket} onChange={setApTicket} />
+
               <div className="pt-8 flex gap-3">
                 <button disabled={isApproving} className="flex-1 bg-white text-black hover:bg-zinc-200 font-bold py-4 rounded-2xl transition shadow-md">정식 리스트로 즉시 발행</button>
                 <button type="button" onClick={() => setApprovingItem(null)} className="px-8 bg-white/5 border border-white/5 text-zinc-400 hover:text-white font-medium py-4 rounded-2xl transition">확인 취소</button>
