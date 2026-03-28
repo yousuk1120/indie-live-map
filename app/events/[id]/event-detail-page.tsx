@@ -49,7 +49,7 @@ function extractExternalUrl(value?: string) {
     const raw = toText(value);
     if (!raw) return "";
 
-    const http = raw.match(/https?:\/\/[^\s)]+/i);
+    const http = raw.match(/htconst instagramUrl = useMemotps?:\/\/[^\s)]+/i);
     if (http) return http[0].replace(/[),.;]+$/, "");
 
     const instaPath = raw.match(/(?:www\.)?instagram\.com\/[A-Za-z0-9_./?=&%-]+/i);
@@ -145,8 +145,15 @@ export default function EventDetailPage() {
         fetchEvent();
     }, [eventId]);
 
-    const instagramUrl = useMemo(() => extractExternalUrl(eventData?.instagramUrl || eventData?.sourceUrl), [eventData?.instagramUrl, eventData?.sourceUrl]);
-    const infoUrl = useMemo(() => extractExternalUrl(eventData?.sourceUrl), [eventData?.sourceUrl]);
+    const instagramUrl = useMemo(
+        () => (eventData ? extractInstagramUrl(eventData) : ""),
+        [eventData]
+    );
+
+    const infoUrl = useMemo(
+        () => (eventData ? extractInfoLink(eventData) : ""),
+        [eventData]
+    );
     const priceLines = useMemo(() => formatPriceLines(eventData?.price), [eventData?.price]);
 
     if (loading) {
@@ -169,18 +176,27 @@ export default function EventDetailPage() {
         <main className="min-h-screen bg-[var(--bg)] px-4 pb-16 pt-8 text-[var(--text)] md:px-8 md:pt-10">
             <div className="mx-auto max-w-4xl">
                 <button type="button" onClick={() => router.back()} className="secondary-btn mb-6">
-                    ← Back
+                    ← 뒤로 가기
                 </button>
 
                 <section className="panel p-6 md:p-8">
-                    <p className="text-sm font-medium text-[var(--muted)]">{formatSchedule(eventData.date, eventData.time)}</p>
-                    <h1 className="mt-3 text-4xl font-semibold tracking-[-0.04em] text-white md:text-5xl">{eventData.title || "제목 없는 공연"}</h1>
+                    <p className="text-sm font-medium text-[var(--muted)]">
+                        {formatSchedule(eventData?.date, eventData?.time)}
+                    </p>
+
+                    <h1 className="mt-3 text-4xl font-semibold tracking-[-0.04em] text-white md:text-5xl">
+                        {eventData.title || "제목 없는 공연"}
+                    </h1>
 
                     <div className="mt-8 grid gap-4 md:grid-cols-2">
                         <InfoCard label="Venue" value={eventData.venueName || "미정"} />
                         <InfoCard label="Artists" value={eventData.artistNames || "미정"} />
                         <InfoCard label="Time" value={formatSchedule(eventData.date, eventData.time)} />
-                        <InfoCard label="Ticket" value={priceLines.join("\n") || "정보 없음"} preserveLineBreak />
+                        <InfoCard
+                            label="Ticket"
+                            value={priceLines.join("\n") || "정보 없음"}
+                            preserveLineBreak
+                        />
                     </div>
 
                     <div className="mt-8 flex flex-wrap gap-2">
@@ -189,30 +205,23 @@ export default function EventDetailPage() {
                                 Instagram ↗
                             </a>
                         ) : null}
+
                         {infoUrl && infoUrl !== instagramUrl ? (
                             <a href={infoUrl} target="_blank" rel="noreferrer" className="secondary-btn">
                                 예매 / 안내 링크 ↗
                             </a>
                         ) : null}
                     </div>
-
-                    {eventData.sourceUrl && !infoUrl ? (
-                        <div className="mt-8 rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] p-5">
-                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">Info</p>
-                            <p className="mt-3 whitespace-pre-line text-sm leading-7 text-white">{eventData.sourceUrl}</p>
-                        </div>
-                    ) : null}
                 </section>
             </div>
         </main>
     );
-}
 
-function InfoCard({ label, value, preserveLineBreak = false }: { label: string; value: string; preserveLineBreak?: boolean }) {
-    return (
-        <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] p-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">{label}</p>
-            <p className={`mt-3 text-base font-medium text-white ${preserveLineBreak ? "whitespace-pre-line" : ""}`}>{value}</p>
-        </div>
-    );
-}
+    function InfoCard({ label, value, preserveLineBreak = false }: { label: string; value: string; preserveLineBreak?: boolean }) {
+        return (
+            <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] p-5">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">{label}</p>
+                <p className={`mt-3 text-base font-medium text-white ${preserveLineBreak ? "whitespace-pre-line" : ""}`}>{value}</p>
+            </div>
+        );
+    }

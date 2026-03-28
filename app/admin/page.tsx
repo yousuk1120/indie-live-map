@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged, signOut } from "firebase/auth";
@@ -66,6 +67,12 @@ export default function AdminPage() {
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-zinc-200 selection:bg-white/20 font-sans">
       <div className="max-w-[1400px] mx-auto p-4 md:p-8">
+        <div className="mb-6 flex items-center justify-between">
+          <h1 className="text-2xl font-semibold text-white">Admin</h1>
+          <Link href="/" className="secondary-btn">
+            ← Concert Schedule
+          </Link>
+        </div>
 
         {/* Header */}
         <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10 pb-6 border-b border-white/5">

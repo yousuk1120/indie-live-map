@@ -13,8 +13,8 @@ type EventItem = {
   venueName?: string;
   artistNames?: string;
   sourceUrl?: string;
+  instagramUrl?: string;
   price?: string;
-  posterUrl?: string;
 };
 
 function toText(value: unknown): string {
@@ -26,70 +26,110 @@ function toText(value: unknown): string {
   return "";
 }
 
-function normalizeDate(date?: string) {
-  const value = toText(date);
-  if (!value) return "";
-  const parts = value.split("-");
-  if (parts.length !== 3) return value;
-  const [yy, mm, dd] = parts;
-  const year = yy.length === 2 ? `20${yy}` : yy;
-  return `${year}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+function normalizeDate(value?: string) {
+  const raw = toText(value);
+  if (!raw) return "";
+  const match = raw.match(/(\d{2,4})[./-](\d{1,2})[./-](\d{1,2})/);
+  if (!match) return "";
+  const [, y, m, d] = match;
+  const year = y.length === 2 ? `20${y}` : y;
+  return `${year}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
 }
 
 function formatSchedule(date?: string, time?: string) {
   const normalized = normalizeDate(date);
   if (!normalized) return "일정 미정";
   const parsed = new Date(`${normalized}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) return [toText(date), toText(time)].filter(Boolean).join(" · ") || "일정 미정";
+  if (Number.isNaN(parsed.getTime())) {
+    return [toText(date), toText(time)].filter(Boolean).join(" · ") || "일정 미정";
+  }
   const week = ["일", "월", "화", "수", "목", "금", "토"][parsed.getDay()];
   return `${parsed.getFullYear()}.${String(parsed.getMonth() + 1).padStart(2, "0")}.${String(parsed.getDate()).padStart(2, "0")} (${week})${time ? ` · ${time}` : ""}`;
 }
 
-function formatExternalUrl(value?: string) {
+function extractExternalUrl(value?: string) {
   const raw = toText(value);
   if (!raw) return "";
-  if (raw.startsWith("http://") || raw.startsWith("https://")) return raw;
-  if (raw.startsWith("@")) return `https://www.instagram.com/${raw.slice(1)}`;
-  if (/^(www\.)?[\w.-]+\.[a-z]{2,}(\/.*)?$/i.test(raw) && !raw.includes(" ")) return `https://${raw}`;
+
+  const http = raw.match(/https?:\/\/[^\s)]+/i);
+  if (http) return http[0].replace(/[),.;]+$/, "");
+
+  const instaPath = raw.match(/(?:www\.)?instagram\.com\/[A-Za-z0-9_./?=&%-]+/i);
+  if (instaPath) {
+    const cleaned = instaPath[0].replace(/^https?:\/\//i, "").replace(/[),.;]+$/, "");
+    return `https://${cleaned}`;
+  }
+
+  const handle = raw.match(/@[A-Za-z0-9._]{2,30}/);
+  if (handle) return `https://www.instagram.com/${handle[0].slice(1)}`;
+
+  const looseUrl = raw.match(/(?:www\.)?[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?:\/[^\s)]*)?/);
+  if (looseUrl && !raw.includes(" ")) return `https://${looseUrl[0].replace(/^https?:\/\//i, "")}`;
+
   return "";
 }
 
-function formatPriceLines(value?: string): string[] {
+function extractInstagramUrl(event: EventItem) {
+  const candidates = [toText(event.instagramUrl), toText(event.sourceUrl)].filter(Boolean);
+
+  for (const raw of candidates) {
+    const instaPath = raw.match(/(?:https?:\/\/)?(?:www\.)?instagram\.com\/[A-Za-z0-9_./?=&%-]+/i);
+    if (instaPath) {
+      const cleaned = instaPath[0].replace(/^https?:\/\//i, "").replace(/[),.;]+$/, "");
+      return `https://${cleaned}`;
+    }
+
+    const handle = raw.match(/@[A-Za-z0-9._]{2,30}/);
+    if (handle) return `https://www.instagram.com/${handle[0].slice(1)}`;
+  }
+
+  return "";
+}
+
+function extractInfoLink(event: EventItem) {
+  const source = extractExternalUrl(event.sourceUrl);
+  const instagram = extractInstagramUrl(event);
+  if (source && source !== instagram) return source;
+  return "";
+}
+
+function formatMoneyToken(token: string) {
+  const digits = token.replace(/[^\d]/g, "");
+  if (!digits) return token.trim();
+  return `${Number(digits).toLocaleString("ko-KR")}원`;
+}
+
+function normalizeMoneyInText(text: string) {
+  return text.replace(/\d[\d,\s]*원/g, (token) => formatMoneyToken(token));
+}
+
+function formatPriceLines(value?: string) {
   const raw = toText(value);
   if (!raw) return [] as string[];
 
-  const flattened = raw
-    .replace(/\r?\n/g, " ")
-    .replace(/\s+/g, " ")
+  const normalized = raw
+    .replace(/\r?\n/g, "\n")
     .replace(/\s*\/\s*/g, "\n")
     .replace(/\s*\|\s*/g, "\n")
     .replace(/\s*·\s*/g, "\n")
-    .replace(/(?<!^)\s*(예매|현매|예판|당일|door)\s*[:：]?\s*/gi, "\n$1 ")
-    .replace(/\n+/g, "\n")
+    .replace(/\s{2,}/g, " ")
     .trim();
+
+  const parts = normalized.split("\n").map((part) => normalizeMoneyInText(part.trim())).filter(Boolean);
 
   return Array.from(
     new Set(
-      flattened
-        .split("\n")
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .map((line: string) => {
-          const priceMatch = line.match(/(\d[\d,\s]*\d|\d)\s*원/i);
-          let next = line;
-          if (priceMatch) {
-            const digits = priceMatch[1].replace(/[^\d]/g, "");
-            if (digits) next = next.replace(priceMatch[0], `${Number(digits).toLocaleString("ko-KR")}원`);
-          }
-          return next.replace(/\s{2,}/g, " ").trim();
-        })
+      parts.map((part) => {
+        if (/free entry|무료/i.test(part)) return part;
+        const labelMatch = part.match(/(예매|현매|예판|당일|door)/i);
+        const label = labelMatch ? labelMatch[1].replace(/^door$/i, "현매") : "";
+        const amounts = Array.from(part.matchAll(/\d[\d,]*원/g)).map((m) => m[0]);
+        const amount = amounts.length ? amounts[amounts.length - 1] : "";
+        if (label && amount) return `${label} ${amount}`;
+        return part;
+      })
     )
   );
-}
-
-function isValidPoster(url?: string) {
-  const value = toText(url);
-  return !!value && !value.startsWith("data:") && (value.startsWith("http://") || value.startsWith("https://"));
 }
 
 function normalizeEvent(id: string, raw: Record<string, unknown>): EventItem {
@@ -101,8 +141,8 @@ function normalizeEvent(id: string, raw: Record<string, unknown>): EventItem {
     venueName: toText(raw.venueName),
     artistNames: toText(raw.artistNames),
     sourceUrl: toText(raw.sourceUrl),
+    instagramUrl: toText((raw as Record<string, unknown>).instagramUrl),
     price: toText(raw.price),
-    posterUrl: toText(raw.posterUrl),
   };
 }
 
@@ -137,12 +177,13 @@ export default function EventDetailPage() {
     fetchEvent();
   }, [eventId]);
 
-  const externalUrl = useMemo(() => formatExternalUrl(eventData?.sourceUrl), [eventData?.sourceUrl]);
+  const instagramUrl = useMemo(() => (eventData ? extractInstagramUrl(eventData) : ""), [eventData]);
+  const infoUrl = useMemo(() => (eventData ? extractInfoLink(eventData) : ""), [eventData]);
   const priceLines = useMemo(() => formatPriceLines(eventData?.price), [eventData?.price]);
 
   if (loading) {
     return (
-      <main className="flex min-h-screen items-center justify-center px-6 text-sm font-medium text-slate-400">
+      <main className="flex min-h-screen items-center justify-center bg-[var(--bg)] text-sm text-[var(--muted)]">
         공연 정보를 불러오는 중입니다.
       </main>
     );
@@ -150,111 +191,49 @@ export default function EventDetailPage() {
 
   if (error || !eventData) {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center px-6 text-center">
-        <h1 className="text-3xl font-black tracking-[-0.04em] text-white">페이지를 찾을 수 없습니다.</h1>
-        <p className="mt-3 text-sm leading-6 text-slate-400">{error || "잘못된 주소이거나 삭제된 공연입니다."}</p>
-        <button
-          type="button"
-          onClick={() => router.push("/")}
-          className="mt-8 rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
-        >
-          홈으로 돌아가기
+      <main className="flex min-h-screen flex-col items-center justify-center bg-[var(--bg)] px-6 text-center">
+        <h1 className="text-3xl font-semibold tracking-[-0.03em] text-white">페이지를 찾을 수 없습니다.</h1>
+        <p className="mt-3 text-sm text-[var(--muted)]">{error || "잘못된 주소이거나 삭제된 공연입니다."}</p>
+        <button type="button" onClick={() => router.push("/")} className="primary-btn mt-8">
+          홈으로 가기
         </button>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen px-4 pb-16 pt-6 md:px-8 md:pt-8">
-      <div className="mx-auto max-w-[1320px] space-y-5">
-        <button
-          type="button"
-          onClick={() => router.back()}
-          className="inline-flex h-11 items-center rounded-full border border-white/10 bg-white/5 px-5 text-sm font-semibold text-white transition hover:bg-white/10"
-        >
+    <main className="min-h-screen bg-[var(--bg)] px-4 pb-16 pt-8 text-[var(--text)] md:px-8 md:pt-10">
+      <div className="mx-auto max-w-4xl">
+        <button type="button" onClick={() => router.back()} className="secondary-btn mb-6">
           ← 뒤로 가기
         </button>
 
-        <section className="site-shell overflow-hidden rounded-[32px] border border-white/10">
-          <div className="grid min-h-[calc(100vh-140px)] gap-0 lg:grid-cols-[0.9fr_1.1fr]">
-            <div className="border-b border-white/10 bg-black/25 p-5 lg:border-b-0 lg:border-r lg:p-6">
-              {isValidPoster(eventData.posterUrl) ? (
-                <img
-                  src={eventData.posterUrl}
-                  alt={eventData.title || "공연 포스터"}
-                  className="h-full max-h-[82vh] w-full rounded-[24px] object-cover"
-                  loading="lazy"
-                  decoding="async"
-                  referrerPolicy="no-referrer"
-                />
-              ) : (
-                <div className="flex h-full min-h-[460px] items-end rounded-[24px] bg-[radial-gradient(circle_at_top_left,rgba(61,197,255,0.22),transparent_30%),linear-gradient(180deg,#10182d,#0a1020)] p-6">
-                  <span className="rounded-full border border-white/10 bg-white/8 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-slate-200">
-                    Live Detail
-                  </span>
-                </div>
-              )}
-            </div>
+        <section className="panel p-6 md:p-8">
+          <p className="text-sm font-medium text-[var(--muted)]">{formatSchedule(eventData.date, eventData.time)}</p>
 
-            <div className="flex flex-col justify-between p-6 md:p-8 lg:p-10">
-              <div>
-                <div className="flex flex-wrap gap-2">
-                  <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-slate-200">
-                    {formatSchedule(eventData.date, eventData.time)}
-                  </span>
-                  {eventData.venueName ? (
-                    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-slate-200">
-                      {eventData.venueName}
-                    </span>
-                  ) : null}
-                </div>
+          <h1 className="mt-3 text-4xl font-semibold tracking-[-0.04em] text-white md:text-5xl">
+            {eventData.title || "제목 없는 공연"}
+          </h1>
 
-                <h1 className="mt-5 max-w-4xl text-4xl font-black leading-[0.96] tracking-[-0.06em] text-white md:text-6xl">
-                  {eventData.title || "제목 없는 공연"}
-                </h1>
+          <div className="mt-8 grid gap-4 md:grid-cols-2">
+            <InfoCard label="Venue" value={eventData.venueName || "미정"} />
+            <InfoCard label="Artists" value={eventData.artistNames || "미정"} />
+            <InfoCard label="Time" value={formatSchedule(eventData.date, eventData.time)} />
+            <InfoCard label="Ticket" value={priceLines.join("\n") || "정보 없음"} preserveLineBreak />
+          </div>
 
-                {eventData.artistNames ? (
-                  <p className="mt-6 max-w-3xl text-base leading-8 text-slate-300 md:text-lg">{eventData.artistNames}</p>
-                ) : null}
-              </div>
+          <div className="mt-8 flex flex-wrap gap-2">
+            {instagramUrl ? (
+              <a href={instagramUrl} target="_blank" rel="noreferrer" className="primary-btn">
+                Instagram ↗
+              </a>
+            ) : null}
 
-              <div className="mt-10 space-y-4">
-                <InfoBlock label="일시" value={formatSchedule(eventData.date, eventData.time)} />
-                <InfoBlock label="장소" value={eventData.venueName || "미정"} />
-                <InfoBlock label="출연" value={eventData.artistNames || "미정"} />
-
-                {priceLines.length ? (
-                  <div className="rounded-[24px] border border-cyan-300/15 bg-cyan-300/[0.07] p-5">
-                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-200">Ticket</p>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {priceLines.map((line) => (
-                        <span key={line} className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1.5 text-sm font-semibold text-cyan-100">
-                          {line}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
-                {eventData.sourceUrl ? (
-                  <div className="rounded-[24px] border border-white/10 bg-black/16 p-5">
-                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Link</p>
-                    {externalUrl ? (
-                      <a
-                        href={externalUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-4 inline-flex h-11 items-center rounded-full bg-white px-5 text-sm font-semibold text-slate-950 transition hover:bg-slate-200"
-                      >
-                        예매 / 원문 열기 ↗
-                      </a>
-                    ) : (
-                      <p className="mt-4 whitespace-pre-line text-sm leading-7 text-slate-200">{eventData.sourceUrl}</p>
-                    )}
-                  </div>
-                ) : null}
-              </div>
-            </div>
+            {infoUrl && infoUrl !== instagramUrl ? (
+              <a href={infoUrl} target="_blank" rel="noreferrer" className="secondary-btn">
+                예매 / 안내 링크 ↗
+              </a>
+            ) : null}
           </div>
         </section>
       </div>
@@ -262,11 +241,21 @@ export default function EventDetailPage() {
   );
 }
 
-function InfoBlock({ label, value }: { label: string; value: string }) {
+function InfoCard({
+  label,
+  value,
+  preserveLineBreak = false,
+}: {
+  label: string;
+  value: string;
+  preserveLineBreak?: boolean;
+}) {
   return (
-    <div className="rounded-[24px] border border-white/10 bg-black/16 p-5">
-      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">{label}</p>
-      <p className="mt-3 text-base font-semibold text-white md:text-lg">{value}</p>
+    <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] p-5">
+      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">{label}</p>
+      <p className={`mt-3 text-base font-medium text-white ${preserveLineBreak ? "whitespace-pre-line" : ""}`}>
+        {value}
+      </p>
     </div>
   );
 }

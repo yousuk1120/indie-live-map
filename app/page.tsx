@@ -51,10 +51,8 @@ function toText(value: unknown): string {
 function normalizeDate(value?: string) {
   const raw = toText(value);
   if (!raw) return "";
-
   const match = raw.match(/(\d{2,4})[./-](\d{1,2})[./-](\d{1,2})/);
   if (!match) return "";
-
   const [, y, m, d] = match;
   const year = y.length === 2 ? `20${y}` : y;
   return `${year}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
@@ -72,7 +70,9 @@ function formatSchedule(event: EventItem) {
   const date = normalizeDate(event.date);
   if (!date) return "일정 미정";
   const parsed = new Date(`${date}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) return [toText(event.date), toText(event.time)].filter(Boolean).join(" · ") || "일정 미정";
+  if (Number.isNaN(parsed.getTime())) {
+    return [toText(event.date), toText(event.time)].filter(Boolean).join(" · ") || "일정 미정";
+  }
   const week = ["일", "월", "화", "수", "목", "금", "토"][parsed.getDay()];
   return `${parsed.getFullYear()}.${String(parsed.getMonth() + 1).padStart(2, "0")}.${String(parsed.getDate()).padStart(2, "0")} (${week})${event.time ? ` · ${event.time}` : ""}`;
 }
@@ -100,56 +100,66 @@ function extractExternalUrl(value?: string) {
 }
 
 function extractInstagramUrl(event: EventItem) {
-  return extractExternalUrl(event.instagramUrl || event.sourceUrl);
+  const candidates = [toText(event.instagramUrl), toText(event.sourceUrl)].filter(Boolean);
+
+  for (const raw of candidates) {
+    const instaPath = raw.match(/(?:https?:\/\/)?(?:www\.)?instagram\.com\/[A-Za-z0-9_./?=&%-]+/i);
+    if (instaPath) {
+      const cleaned = instaPath[0].replace(/^https?:\/\//i, "").replace(/[),.;]+$/, "");
+      return `https://${cleaned}`;
+    }
+
+    const handle = raw.match(/@[A-Za-z0-9._]{2,30}/);
+    if (handle) return `https://www.instagram.com/${handle[0].slice(1)}`;
+  }
+
+  return "";
 }
 
 function extractInfoLink(event: EventItem) {
   const source = extractExternalUrl(event.sourceUrl);
-  if (source) return source;
-  return extractExternalUrl(event.instagramUrl);
+  const instagram = extractInstagramUrl(event);
+  if (source && source !== instagram) return source;
+  return "";
+}
+
+function formatMoneyToken(token: string) {
+  const digits = token.replace(/[^\d]/g, "");
+  if (!digits) return token.trim();
+  return `${Number(digits).toLocaleString("ko-KR")}원`;
+}
+
+function normalizeMoneyInText(text: string) {
+  return text.replace(/\d[\d,\s]*원/g, (token) => formatMoneyToken(token));
 }
 
 function formatPriceLines(value?: string) {
-  let raw = toText(value);
+  const raw = toText(value);
   if (!raw) return [] as string[];
-
-  while (/(\d)\s+(?=\d)/.test(raw)) {
-    raw = raw.replace(/(\d)\s+(?=\d)/g, "$1");
-  }
 
   const normalized = raw
     .replace(/\r?\n/g, "\n")
     .replace(/\s*\/\s*/g, "\n")
     .replace(/\s*\|\s*/g, "\n")
     .replace(/\s*·\s*/g, "\n")
-    .replace(/,(?=\s*(예매|현매|예판|당일|door))/gi, "\n")
     .replace(/\s{2,}/g, " ")
     .trim();
 
-  const parts = normalized
-    .split("\n")
-    .map((part) => part.trim())
-    .filter(Boolean);
+  const parts = normalized.split("\n").map((part) => normalizeMoneyInText(part.trim())).filter(Boolean);
 
-  const result = parts.map((part) => {
-    const labelMatch = part.match(/(예매|현매|예판|당일|door)/i);
-    const label = labelMatch ? labelMatch[1].replace(/^door$/i, "현매") : "";
-
-    const digits = part.match(/\d[\d,]*/)?.[0]?.replace(/,/g, "") || "";
-    const amount = digits ? `${Number(digits).toLocaleString("ko-KR")}원` : "";
-
-    const freeText = /free entry|무료|free/i.test(part)
-      ? part.replace(/\s{2,}/g, " ").trim()
-      : "";
-
-    if (label && amount) return `${label} ${amount}`;
-    if (label && !amount) return part.replace(/\s{2,}/g, " ").trim();
-    if (!label && amount) return amount;
-    if (freeText) return freeText;
-    return part.replace(/\s{2,}/g, " ").trim();
-  });
-
-  return Array.from(new Set(result.filter(Boolean)));
+  return Array.from(
+    new Set(
+      parts.map((part) => {
+        if (/free entry|무료/i.test(part)) return part;
+        const labelMatch = part.match(/(예매|현매|예판|당일|door)/i);
+        const label = labelMatch ? labelMatch[1].replace(/^door$/i, "현매") : "";
+        const amounts = Array.from(part.matchAll(/\d[\d,]*원/g)).map((m) => m[0]);
+        const amount = amounts.length ? amounts[amounts.length - 1] : "";
+        if (label && amount) return `${label} ${amount}`;
+        return part;
+      })
+    )
+  );
 }
 
 function normalizeEvent(id: string, raw: Record<string, unknown>): EventItem {
@@ -189,6 +199,7 @@ export default function Home() {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const markersRef = useRef<any[]>([]);
   const kakaoKey = process.env.NEXT_PUBLIC_KAKAO_MAP_API_KEY;
+
   useEffect(() => {
     if (typeof window !== "undefined") {
       setOrigin(window.location.origin);
@@ -229,9 +240,7 @@ export default function Home() {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return events;
     return events.filter((event) =>
-      [event.title, event.venueName, event.artistNames]
-        .filter(Boolean)
-        .some((value) => value!.toLowerCase().includes(q))
+      [event.title, event.venueName, event.artistNames].filter(Boolean).some((value) => value!.toLowerCase().includes(q))
     );
   }, [events, searchQuery]);
 
@@ -402,7 +411,9 @@ export default function Home() {
           src={`https://dapi.kakao.com/v2/maps/sdk.js?appkey=${kakaoKey}&libraries=services&autoload=false`}
           strategy="afterInteractive"
           onLoad={() => setMapReady(true)}
-          onError={() => setMapError(`카카오 지도 스크립트를 불러오지 못했습니다. Kakao Developers에 ${origin || "현재 도메인"} 을 JavaScript SDK 도메인으로 등록하세요.`)}
+          onError={() =>
+            setMapError(`카카오 지도 스크립트를 불러오지 못했습니다. Kakao Developers에 ${origin || "현재 도메인"} 을 JavaScript SDK 도메인으로 등록하세요.`)
+          }
         />
       ) : null}
 
@@ -417,13 +428,71 @@ export default function Home() {
           </Link>
         </header>
 
-        <section className="panel mb-8 p-4 md:p-5">
+        <section className="panel mb-6 p-4 md:p-5">
           <input
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
             placeholder="공연명, 공연장, 아티스트 검색"
             className="h-14 w-full rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] px-4 text-base text-white outline-none transition focus:border-[var(--accent)]"
           />
+        </section>
+
+        <section className="mb-8 grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
+          <aside className="panel p-4 md:p-5">
+            <div className="mb-4 border-b border-[var(--line)] pb-4">
+              <h2 className="text-lg font-semibold text-white">Venue Map</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">공연장별로 바로 보기</p>
+            </div>
+
+            <div className="space-y-3">
+              {venueBuckets.length ? (
+                venueBuckets.map((bucket) => (
+                  <button
+                    key={bucket.venueName}
+                    type="button"
+                    onClick={() => setActiveVenue(bucket.venueName)}
+                    className={`w-full rounded-2xl border px-4 py-4 text-left transition ${bucket.venueName === activeVenue
+                        ? "border-[var(--accent)] bg-[var(--accent-soft)]"
+                        : "border-[var(--line)] bg-[var(--panel-2)] hover:border-[var(--accent)]/60"
+                      }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-medium text-white">{bucket.venueName}</span>
+                      <span className="text-sm text-[var(--muted)]">{bucket.events.length}</span>
+                    </div>
+                  </button>
+                ))
+              ) : (
+                <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] px-4 py-5 text-sm text-[var(--muted)]">
+                  표시할 공연장이 없습니다.
+                </div>
+              )}
+            </div>
+
+            {activeVenueEvents.length ? (
+              <div className="mt-5 space-y-3 border-t border-[var(--line)] pt-5">
+                {activeVenueEvents.map((event) => (
+                  <ScheduleRow
+                    key={event.id}
+                    event={event}
+                    onOpen={() => router.push(`/events/${event.id}`)}
+                    isSaved={savedEvents.has(event.id)}
+                    onToggleSave={() => toggleSave(event.id)}
+                  />
+                ))}
+              </div>
+            ) : null}
+          </aside>
+
+          <div className="panel overflow-hidden p-4 md:p-5">
+            <div className="mb-4 border-b border-[var(--line)] pb-4">
+              <h2 className="text-lg font-semibold text-white">Map</h2>
+              {mapError ? <p className="mt-1 text-sm leading-6 text-[var(--muted)]">{mapError}</p> : null}
+            </div>
+            <div className="overflow-hidden rounded-3xl border border-[var(--line)] bg-[#121418]">
+              <div ref={mapContainerRef} className="h-[440px] w-full" />
+            </div>
+          </div>
         </section>
 
         {loading ? (
@@ -441,23 +510,11 @@ export default function Home() {
                 <div className="mb-5 flex items-center justify-between">
                   <h2 className="text-lg font-semibold text-white">Calendar</h2>
                   <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))}
-                      className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--line)] text-sm text-[var(--text)] transition hover:border-[var(--accent)]"
-                    >
-                      ←
-                    </button>
+                    <button type="button" onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--line)] text-sm text-[var(--text)] transition hover:border-[var(--accent)]">←</button>
                     <span className="min-w-[120px] text-center text-sm font-medium text-white">
                       {currentMonth.getFullYear()}.{String(currentMonth.getMonth() + 1).padStart(2, "0")}
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))}
-                      className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--line)] text-sm text-[var(--text)] transition hover:border-[var(--accent)]"
-                    >
-                      →
-                    </button>
+                    <button type="button" onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--line)] text-sm text-[var(--text)] transition hover:border-[var(--accent)]">→</button>
                   </div>
                 </div>
 
@@ -470,12 +527,7 @@ export default function Home() {
                 <div className="grid grid-cols-7 gap-2 md:gap-3">
                   {calendarCells.map((cell, index) =>
                     cell ? (
-                      <button
-                        key={cell.key}
-                        type="button"
-                        onClick={() => setSelectedDate(cell.key)}
-                        className={`calendar-cell ${cell.key === selectedDate ? "calendar-cell-active" : ""}`}
-                      >
+                      <button key={cell.key} type="button" onClick={() => setSelectedDate(cell.key)} className={`calendar-cell ${cell.key === selectedDate ? "calendar-cell-active" : ""}`}>
                         <span className="text-sm font-semibold text-white md:text-base">{cell.day}</span>
                         {cell.events.length ? (
                           <span className="mt-2 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-[var(--accent-soft)] px-1.5 text-[11px] font-semibold text-[var(--accent)]">
@@ -538,62 +590,6 @@ export default function Home() {
                 )}
               </div>
             </section>
-
-            <section className="mt-8 grid gap-6 lg:grid-cols-[1.12fr_0.88fr]">
-              <div className="panel overflow-hidden p-4 md:p-5">
-                <div className="mb-4 border-b border-[var(--line)] pb-4">
-                  <h2 className="text-lg font-semibold text-white">Map</h2>
-                  {mapError ? <p className="mt-1 text-sm leading-6 text-[var(--muted)]">{mapError}</p> : null}
-                </div>
-                <div className="overflow-hidden rounded-3xl border border-[var(--line)] bg-[#121418]">
-                  <div ref={mapContainerRef} className="h-[440px] w-full" />
-                </div>
-              </div>
-
-              <aside className="panel p-4 md:p-5">
-                <div className="mb-4 border-b border-[var(--line)] pb-4">
-                  <h2 className="text-lg font-semibold text-white">Venues</h2>
-                </div>
-                <div className="space-y-3">
-                  {venueBuckets.length ? (
-                    venueBuckets.map((bucket) => (
-                      <button
-                        key={bucket.venueName}
-                        type="button"
-                        onClick={() => setActiveVenue(bucket.venueName)}
-                        className={`w-full rounded-2xl border px-4 py-4 text-left transition ${bucket.venueName === activeVenue
-                          ? "border-[var(--accent)] bg-[var(--accent-soft)]"
-                          : "border-[var(--line)] bg-[var(--panel-2)] hover:border-[var(--accent)]/60"
-                          }`}
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="font-medium text-white">{bucket.venueName}</span>
-                          <span className="text-sm text-[var(--muted)]">{bucket.events.length}</span>
-                        </div>
-                      </button>
-                    ))
-                  ) : (
-                    <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] px-4 py-5 text-sm text-[var(--muted)]">
-                      표시할 공연장이 없습니다.
-                    </div>
-                  )}
-                </div>
-
-                {activeVenueEvents.length ? (
-                  <div className="mt-5 space-y-3 border-t border-[var(--line)] pt-5">
-                    {activeVenueEvents.map((event) => (
-                      <ScheduleRow
-                        key={event.id}
-                        event={event}
-                        onOpen={() => router.push(`/events/${event.id}`)}
-                        isSaved={savedEvents.has(event.id)}
-                        onToggleSave={() => toggleSave(event.id)}
-                      />
-                    ))}
-                  </div>
-                ) : null}
-              </aside>
-            </section>
           </>
         )}
       </div>
@@ -601,55 +597,77 @@ export default function Home() {
   );
 }
 
-function EventListRow({ event, onOpen, isSaved, onToggleSave }: { event: EventItem; onOpen: () => void; isSaved: boolean; onToggleSave: () => void }) {
+function EventListRow({
+  event,
+  onOpen,
+  isSaved,
+  onToggleSave,
+}: {
+  event: EventItem;
+  onOpen: () => void;
+  isSaved: boolean;
+  onToggleSave: () => void;
+}) {
   const priceLines = formatPriceLines(event.price);
   const instagramUrl = extractInstagramUrl(event);
   const infoUrl = extractInfoLink(event);
 
-  const handleOpen = (e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    const targetUrl = instagramUrl || infoUrl;
-    if (!event.posterUrl && targetUrl) {
-      window.open(targetUrl, "_blank");
-    } else {
-      onOpen();
-    }
-  };
-
   return (
-    <article className="py-5 first:pt-0 last:pb-0">
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <button type="button" onClick={handleOpen} className="flex-1 text-left">
+    <article className="py-6 first:pt-0 last:pb-0">
+      <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+        <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
           <p className="text-sm font-medium text-[var(--muted)]">{formatSchedule(event)}</p>
           <h3 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-white">{event.title || "제목 없는 공연"}</h3>
-          <div className="mt-3 grid gap-2 text-sm text-[var(--muted)] md:grid-cols-3">
-            <span>{event.venueName || "장소 미정"}</span>
-            <span>{event.artistNames || "출연 정보 없음"}</span>
-            <div className="space-y-1">
-              {priceLines.length ? priceLines.map((line) => <div key={`${event.id}-${line}`} className="font-medium text-white">{line}</div>) : <span>티켓 정보 없음</span>}
+
+          <div className="mt-5 grid gap-5 md:grid-cols-[220px_minmax(0,1fr)_180px]">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Venue</p>
+              <p className="mt-2 break-words text-base text-zinc-200">{event.venueName || "장소 미정"}</p>
+            </div>
+
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Artists</p>
+              <p className="mt-2 break-words text-base leading-7 text-zinc-200">{event.artistNames || "출연 정보 없음"}</p>
+            </div>
+
+            <div className="min-w-0 md:text-right">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Ticket</p>
+              <div className="mt-2 space-y-1">
+                {priceLines.length ? (
+                  priceLines.map((line) => (
+                    <p key={`${event.id}-${line}`} className="text-base font-semibold text-white">{line}</p>
+                  ))
+                ) : (
+                  <p className="text-base text-[var(--muted)]">티켓 정보 없음</p>
+                )}
+              </div>
             </div>
           </div>
         </button>
 
-        <div className="flex shrink-0 gap-2 md:pl-4">
+        <div className="flex shrink-0 items-start gap-2 xl:pl-6">
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); onToggleSave(); }}
-            className={`secondary-btn ${isSaved ? 'text-yellow-400 border-yellow-400/50' : ''}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleSave();
+            }}
+            className={`secondary-btn ${isSaved ? "text-yellow-400 border-yellow-400/50" : ""}`}
           >
-            {isSaved ? '★ 저장됨' : '☆ 저장'}
+            {isSaved ? "★ 저장됨" : "☆ 저장"}
           </button>
+
           {instagramUrl ? (
-            <a href={instagramUrl} target="_blank" rel="noreferrer" className="secondary-btn" onClick={(event) => event.stopPropagation()}>
+            <a href={instagramUrl} target="_blank" rel="noreferrer" className="secondary-btn" onClick={(e) => e.stopPropagation()}>
               Instagram ↗
             </a>
-          ) : null}
-          {infoUrl && infoUrl !== instagramUrl ? (
-            <a href={infoUrl} target="_blank" rel="noreferrer" className="secondary-btn" onClick={(event) => event.stopPropagation()}>
+          ) : infoUrl ? (
+            <a href={infoUrl} target="_blank" rel="noreferrer" className="secondary-btn" onClick={(e) => e.stopPropagation()}>
               Link ↗
             </a>
           ) : null}
-          <button type="button" onClick={handleOpen} className="primary-btn">
+
+          <button type="button" onClick={onOpen} className="primary-btn">
             Detail
           </button>
         </div>
@@ -658,37 +676,66 @@ function EventListRow({ event, onOpen, isSaved, onToggleSave }: { event: EventIt
   );
 }
 
-function ScheduleRow({ event, onOpen, isSaved, onToggleSave }: { event: EventItem; onOpen: () => void; isSaved: boolean; onToggleSave: () => void }) {
+function ScheduleRow({
+  event,
+  onOpen,
+  isSaved,
+  onToggleSave,
+}: {
+  event: EventItem;
+  onOpen: () => void;
+  isSaved: boolean;
+  onToggleSave: () => void;
+}) {
+  const priceLines = formatPriceLines(event.price);
   const instagramUrl = extractInstagramUrl(event);
   const infoUrl = extractInfoLink(event);
 
-  const handleOpen = (e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    const targetUrl = instagramUrl || infoUrl;
-    if (!event.posterUrl && targetUrl) {
-      window.open(targetUrl, "_blank");
-    } else {
-      onOpen();
-    }
-  };
-
   return (
     <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] p-4">
-      <div className="flex items-start justify-between gap-3">
-        <button type="button" onClick={handleOpen} className="flex-1 text-left">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
           <p className="text-sm font-medium text-[var(--muted)]">{formatSchedule(event)}</p>
-          <p className="mt-1 text-base font-medium text-white">{event.title || "제목 없는 공연"}</p>
-          {event.venueName ? <p className="mt-2 text-sm text-[var(--muted)]">{event.venueName}</p> : null}
+          <p className="mt-1 text-lg font-semibold text-white">{event.title || "제목 없는 공연"}</p>
+
+          <div className="mt-3 grid gap-3 md:grid-cols-[180px_minmax(0,1fr)_140px]">
+            <p className="min-w-0 text-sm text-[var(--muted)]">{event.venueName || "장소 미정"}</p>
+            <p className="min-w-0 break-words text-sm leading-6 text-zinc-200">{event.artistNames || "출연 정보 없음"}</p>
+            <div className="space-y-1 md:text-right">
+              {priceLines.length ? (
+                priceLines.map((line) => (
+                  <p key={`${event.id}-${line}`} className="text-sm font-medium text-white">{line}</p>
+                ))
+              ) : (
+                <p className="text-sm text-[var(--muted)]">티켓 정보 없음</p>
+              )}
+            </div>
+          </div>
         </button>
+
         <div className="flex gap-2">
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); onToggleSave(); }}
-            className={`secondary-btn ${isSaved ? 'text-yellow-400 border-yellow-400/50' : ''}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleSave();
+            }}
+            className={`secondary-btn ${isSaved ? "text-yellow-400 border-yellow-400/50" : ""}`}
           >
-            {isSaved ? '★' : '☆'}
+            {isSaved ? "★" : "☆"}
           </button>
-          <button type="button" onClick={handleOpen} className="secondary-btn">
+
+          {instagramUrl ? (
+            <a href={instagramUrl} target="_blank" rel="noreferrer" className="secondary-btn" onClick={(e) => e.stopPropagation()}>
+              Instagram
+            </a>
+          ) : infoUrl ? (
+            <a href={infoUrl} target="_blank" rel="noreferrer" className="secondary-btn" onClick={(e) => e.stopPropagation()}>
+              Link
+            </a>
+          ) : null}
+
+          <button type="button" onClick={onOpen} className="secondary-btn">
             Detail
           </button>
         </div>
