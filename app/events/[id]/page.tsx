@@ -39,10 +39,12 @@ function normalizeDate(value?: string) {
 function formatSchedule(date?: string, time?: string) {
   const normalized = normalizeDate(date);
   if (!normalized) return "일정 미정";
+
   const parsed = new Date(`${normalized}T00:00:00`);
   if (Number.isNaN(parsed.getTime())) {
     return [toText(date), toText(time)].filter(Boolean).join(" · ") || "일정 미정";
   }
+
   const week = ["일", "월", "화", "수", "목", "금", "토"][parsed.getDay()];
   return `${parsed.getFullYear()}.${String(parsed.getMonth() + 1).padStart(2, "0")}.${String(parsed.getDate()).padStart(2, "0")} (${week})${time ? ` · ${time}` : ""}`;
 }

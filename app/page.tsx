@@ -51,8 +51,10 @@ function toText(value: unknown): string {
 function normalizeDate(value?: string) {
   const raw = toText(value);
   if (!raw) return "";
+
   const match = raw.match(/(\d{2,4})[./-](\d{1,2})[./-](\d{1,2})/);
   if (!match) return "";
+
   const [, y, m, d] = match;
   const year = y.length === 2 ? `20${y}` : y;
   return `${year}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
@@ -69,10 +71,12 @@ function eventTimestamp(event: EventItem) {
 function formatSchedule(event: EventItem) {
   const date = normalizeDate(event.date);
   if (!date) return "일정 미정";
+
   const parsed = new Date(`${date}T00:00:00`);
   if (Number.isNaN(parsed.getTime())) {
     return [toText(event.date), toText(event.time)].filter(Boolean).join(" · ") || "일정 미정";
   }
+
   const week = ["일", "월", "화", "수", "목", "금", "토"][parsed.getDay()];
   return `${parsed.getFullYear()}.${String(parsed.getMonth() + 1).padStart(2, "0")}.${String(parsed.getDate()).padStart(2, "0")} (${week})${event.time ? ` · ${event.time}` : ""}`;
 }
@@ -94,7 +98,9 @@ function extractExternalUrl(value?: string) {
   if (handle) return `https://www.instagram.com/${handle[0].slice(1)}`;
 
   const looseUrl = raw.match(/(?:www\.)?[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?:\/[^\s)]*)?/);
-  if (looseUrl && !raw.includes(" ")) return `https://${looseUrl[0].replace(/^https?:\/\//i, "")}`;
+  if (looseUrl && !raw.includes(" ")) {
+    return `https://${looseUrl[0].replace(/^https?:\/\//i, "")}`;
+  }
 
   return "";
 }
@@ -110,7 +116,9 @@ function extractInstagramUrl(event: EventItem) {
     }
 
     const handle = raw.match(/@[A-Za-z0-9._]{2,30}/);
-    if (handle) return `https://www.instagram.com/${handle[0].slice(1)}`;
+    if (handle) {
+      return `https://www.instagram.com/${handle[0].slice(1)}`;
+    }
   }
 
   return "";
@@ -145,16 +153,21 @@ function formatPriceLines(value?: string) {
     .replace(/\s{2,}/g, " ")
     .trim();
 
-  const parts = normalized.split("\n").map((part) => normalizeMoneyInText(part.trim())).filter(Boolean);
+  const parts = normalized
+    .split("\n")
+    .map((part) => normalizeMoneyInText(part.trim()))
+    .filter(Boolean);
 
   return Array.from(
     new Set(
       parts.map((part) => {
         if (/free entry|무료/i.test(part)) return part;
+
         const labelMatch = part.match(/(예매|현매|예판|당일|door)/i);
         const label = labelMatch ? labelMatch[1].replace(/^door$/i, "현매") : "";
         const amounts = Array.from(part.matchAll(/\d[\d,]*원/g)).map((m) => m[0]);
         const amount = amounts.length ? amounts[amounts.length - 1] : "";
+
         if (label && amount) return `${label} ${amount}`;
         return part;
       })
@@ -240,7 +253,9 @@ export default function Home() {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return events;
     return events.filter((event) =>
-      [event.title, event.venueName, event.artistNames].filter(Boolean).some((value) => value!.toLowerCase().includes(q))
+      [event.title, event.venueName, event.artistNames]
+        .filter(Boolean)
+        .some((value) => value!.toLowerCase().includes(q))
     );
   }, [events, searchQuery]);
 
@@ -489,6 +504,7 @@ export default function Home() {
               <h2 className="text-lg font-semibold text-white">Map</h2>
               {mapError ? <p className="mt-1 text-sm leading-6 text-[var(--muted)]">{mapError}</p> : null}
             </div>
+
             <div className="overflow-hidden rounded-3xl border border-[var(--line)] bg-[#121418]">
               <div ref={mapContainerRef} className="h-[440px] w-full" />
             </div>
@@ -510,11 +526,15 @@ export default function Home() {
                 <div className="mb-5 flex items-center justify-between">
                   <h2 className="text-lg font-semibold text-white">Calendar</h2>
                   <div className="flex items-center gap-2">
-                    <button type="button" onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--line)] text-sm text-[var(--text)] transition hover:border-[var(--accent)]">←</button>
+                    <button type="button" onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--line)] text-sm text-[var(--text)] transition hover:border-[var(--accent)]">
+                      ←
+                    </button>
                     <span className="min-w-[120px] text-center text-sm font-medium text-white">
                       {currentMonth.getFullYear()}.{String(currentMonth.getMonth() + 1).padStart(2, "0")}
                     </span>
-                    <button type="button" onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--line)] text-sm text-[var(--text)] transition hover:border-[var(--accent)]">→</button>
+                    <button type="button" onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--line)] text-sm text-[var(--text)] transition hover:border-[var(--accent)]">
+                      →
+                    </button>
                   </div>
                 </div>
 
