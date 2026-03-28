@@ -186,6 +186,9 @@ export default function Home() {
   const [activeVenue, setActiveVenue] = useState("");
   const [savedEvents, setSavedEvents] = useState<Set<string>>(new Set());
 
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const markersRef = useRef<any[]>([]);
+  const kakaoKey = process.env.NEXT_PUBLIC_KAKAO_MAP_API_KEY;
   useEffect(() => {
     if (typeof window !== "undefined") {
       setOrigin(window.location.origin);
