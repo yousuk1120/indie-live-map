@@ -74,7 +74,7 @@ export async function GET(req: Request) {
           continue;
         }
 
-        const realPosts = latestPosts.slice(0, 3).map((p: any) => ({
+        const realPosts = latestPosts.slice(0, 10).map((p: any) => ({
           instaLink: p.url ?? `https://www.instagram.com/p/${p.shortCode}/`,
           caption: p.caption ?? "",
           posterUrl: p.displayUrl ?? p.thumbnailUrl ?? "",

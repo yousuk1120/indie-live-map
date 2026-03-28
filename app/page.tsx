@@ -528,8 +528,8 @@ export default function Home() {
                         type="button"
                         onClick={() => setActiveVenue(bucket.venueName)}
                         className={`w-full rounded-2xl border px-4 py-4 text-left transition ${bucket.venueName === activeVenue
-                            ? "border-[var(--accent)] bg-[var(--accent-soft)]"
-                            : "border-[var(--line)] bg-[var(--panel-2)] hover:border-[var(--accent)]/60"
+                          ? "border-[var(--accent)] bg-[var(--accent-soft)]"
+                          : "border-[var(--line)] bg-[var(--panel-2)] hover:border-[var(--accent)]/60"
                           }`}
                       >
                         <div className="flex items-center justify-between gap-3">
@@ -561,15 +561,28 @@ export default function Home() {
   );
 }
 
-function EventListRow({ event, onOpen }: { event: EventItem; onOpen: () => void }) {
+// ★ 수정: 포스터 없으면 인스타로 바로가는 EventListRow
+function EventListRow({ event, onOpen, isSaved, onToggleSave }: { event: EventItem; onOpen: () => void; isSaved: boolean; onToggleSave: () => void }) {
   const priceLines = formatPriceLines(event.price);
   const instagramUrl = extractInstagramUrl(event);
   const infoUrl = extractInfoLink(event);
 
+  // ★ 핵심: 어디로 갈지 결정하는 함수
+  const handleOpen = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const targetUrl = instagramUrl || infoUrl;
+    // 포스터가 없고 외부 링크가 있으면 새 창으로 열기!
+    if (!event.posterUrl && targetUrl) {
+      window.open(targetUrl, "_blank");
+    } else {
+      onOpen(); // 포스터가 있으면 원래 상세 페이지로
+    }
+  };
+
   return (
     <article className="py-5 first:pt-0 last:pb-0">
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <button type="button" onClick={onOpen} className="flex-1 text-left">
+        <button type="button" onClick={handleOpen} className="flex-1 text-left">
           <p className="text-sm font-medium text-[var(--muted)]">{formatSchedule(event)}</p>
           <h3 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-white">{event.title || "제목 없는 공연"}</h3>
           <div className="mt-3 grid gap-2 text-sm text-[var(--muted)] md:grid-cols-3">
@@ -582,29 +595,19 @@ function EventListRow({ event, onOpen }: { event: EventItem; onOpen: () => void 
         </button>
 
         <div className="flex shrink-0 gap-2 md:pl-4">
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onToggleSave(); }}
+            className={`secondary-btn ${isSaved ? 'text-yellow-400 border-yellow-400/50' : ''}`}
+          >
+            {isSaved ? '★ 저장됨' : '☆ 저장'}
+          </button>
           {instagramUrl ? (
-            <a
-              href={instagramUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="secondary-btn"
-              onClick={(event) => event.stopPropagation()}
-            >
+            <a href={instagramUrl} target="_blank" rel="noreferrer" className="secondary-btn" onClick={(event) => event.stopPropagation()}>
               Instagram ↗
             </a>
           ) : null}
-          {infoUrl && infoUrl !== instagramUrl ? (
-            <a
-              href={infoUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="secondary-btn"
-              onClick={(event) => event.stopPropagation()}
-            >
-              Link ↗
-            </a>
-          ) : null}
-          <button type="button" onClick={onOpen} className="primary-btn">
+          <button type="button" onClick={handleOpen} className="primary-btn">
             Detail
           </button>
         </div>
@@ -613,23 +616,38 @@ function EventListRow({ event, onOpen }: { event: EventItem; onOpen: () => void 
   );
 }
 
-function ScheduleRow({ event, onOpen }: { event: EventItem; onOpen: () => void }) {
+// ★ 수정: 포스터 없으면 인스타로 바로가는 ScheduleRow
+function ScheduleRow({ event, onOpen, isSaved, onToggleSave }: { event: EventItem; onOpen: () => void; isSaved: boolean; onToggleSave: () => void }) {
   const instagramUrl = extractInstagramUrl(event);
+  const infoUrl = extractInfoLink(event);
+
+  const handleOpen = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const targetUrl = instagramUrl || infoUrl;
+    if (!event.posterUrl && targetUrl) {
+      window.open(targetUrl, "_blank");
+    } else {
+      onOpen();
+    }
+  };
+
   return (
     <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] p-4">
       <div className="flex items-start justify-between gap-3">
-        <button type="button" onClick={onOpen} className="flex-1 text-left">
+        <button type="button" onClick={handleOpen} className="flex-1 text-left">
           <p className="text-sm font-medium text-[var(--muted)]">{formatSchedule(event)}</p>
           <p className="mt-1 text-base font-medium text-white">{event.title || "제목 없는 공연"}</p>
           {event.venueName ? <p className="mt-2 text-sm text-[var(--muted)]">{event.venueName}</p> : null}
         </button>
         <div className="flex gap-2">
-          {instagramUrl ? (
-            <a href={instagramUrl} target="_blank" rel="noreferrer" className="secondary-btn" onClick={(event) => event.stopPropagation()}>
-              Instagram
-            </a>
-          ) : null}
-          <button type="button" onClick={onOpen} className="secondary-btn">
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onToggleSave(); }}
+            className={`secondary-btn ${isSaved ? 'text-yellow-400 border-yellow-400/50' : ''}`}
+          >
+            {isSaved ? '★' : '☆'}
+          </button>
+          <button type="button" onClick={handleOpen} className="secondary-btn">
             Detail
           </button>
         </div>
