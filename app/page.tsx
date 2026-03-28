@@ -21,8 +21,15 @@ type EventItem = {
   venueName?: string;
   artistNames?: string;
   sourceUrl?: string;
+  instagramUrl?: string;
   price?: string;
   posterUrl?: string;
+};
+
+type CalendarCell = {
+  key: string;
+  day: number;
+  events: EventItem[];
 };
 
 type VenueBucket = {
@@ -41,14 +48,16 @@ function toText(value: unknown): string {
   return "";
 }
 
-function normalizeDate(date?: string) {
-  const value = toText(date);
-  if (!value) return "";
-  const parts = value.split("-");
-  if (parts.length !== 3) return value;
-  const [yy, mm, dd] = parts;
-  const year = yy.length === 2 ? `20${yy}` : yy;
-  return `${year}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+function normalizeDate(value?: string) {
+  const raw = toText(value);
+  if (!raw) return "";
+
+  const match = raw.match(/(\d{2,4})[./-](\d{1,2})[./-](\d{1,2})/);
+  if (!match) return "";
+
+  const [, y, m, d] = match;
+  const year = y.length === 2 ? `20${y}` : y;
+  return `${year}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
 }
 
 function eventTimestamp(event: EventItem) {
@@ -61,69 +70,86 @@ function eventTimestamp(event: EventItem) {
 
 function formatSchedule(event: EventItem) {
   const date = normalizeDate(event.date);
-  const time = toText(event.time);
   if (!date) return "일정 미정";
-
   const parsed = new Date(`${date}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) return [toText(event.date), time].filter(Boolean).join(" · ") || "일정 미정";
-
+  if (Number.isNaN(parsed.getTime())) return [toText(event.date), toText(event.time)].filter(Boolean).join(" · ") || "일정 미정";
   const week = ["일", "월", "화", "수", "목", "금", "토"][parsed.getDay()];
-  return `${parsed.getMonth() + 1}.${parsed.getDate()} (${week})${time ? ` · ${time}` : ""}`;
+  return `${parsed.getFullYear()}.${String(parsed.getMonth() + 1).padStart(2, "0")}.${String(parsed.getDate()).padStart(2, "0")} (${week})${event.time ? ` · ${event.time}` : ""}`;
 }
 
-function formatExternalUrl(value?: string) {
+function extractExternalUrl(value?: string) {
   const raw = toText(value);
   if (!raw) return "";
-  if (raw.startsWith("http://") || raw.startsWith("https://")) return raw;
-  if (raw.startsWith("@")) return `https://www.instagram.com/${raw.slice(1)}`;
-  if (/^(www\.)?[\w.-]+\.[a-z]{2,}(\/.*)?$/i.test(raw) && !raw.includes(" ")) return `https://${raw}`;
+
+  const http = raw.match(/https?:\/\/[^\s)]+/i);
+  if (http) return http[0].replace(/[),.;]+$/, "");
+
+  const instaPath = raw.match(/(?:www\.)?instagram\.com\/[A-Za-z0-9_./?=&%-]+/i);
+  if (instaPath) {
+    const cleaned = instaPath[0].replace(/^https?:\/\//i, "").replace(/[),.;]+$/, "");
+    return `https://${cleaned}`;
+  }
+
+  const handle = raw.match(/@[A-Za-z0-9._]{2,30}/);
+  if (handle) return `https://www.instagram.com/${handle[0].slice(1)}`;
+
+  const looseUrl = raw.match(/(?:www\.)?[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?:\/[^\s)]*)?/);
+  if (looseUrl && !raw.includes(" ")) return `https://${looseUrl[0].replace(/^https?:\/\//i, "")}`;
+
   return "";
 }
 
-function formatPriceLines(value?: string): string[] {
-  const raw = toText(value);
+function extractInstagramUrl(event: EventItem) {
+  return extractExternalUrl(event.instagramUrl || event.sourceUrl);
+}
+
+function extractInfoLink(event: EventItem) {
+  const source = extractExternalUrl(event.sourceUrl);
+  if (source) return source;
+  return extractExternalUrl(event.instagramUrl);
+}
+
+function formatPriceLines(value?: string) {
+  let raw = toText(value);
   if (!raw) return [] as string[];
 
-  const flattened = raw
-    .replace(/\r?\n/g, " ")
-    .replace(/\s+/g, " ")
+  while (/(\d)\s+(?=\d)/.test(raw)) {
+    raw = raw.replace(/(\d)\s+(?=\d)/g, "$1");
+  }
+
+  const normalized = raw
+    .replace(/\r?\n/g, "\n")
     .replace(/\s*\/\s*/g, "\n")
     .replace(/\s*\|\s*/g, "\n")
     .replace(/\s*·\s*/g, "\n")
-    .replace(/(?<!^)\s*(예매|현매|예판|당일|door)\s*[:：]?\s*/gi, "\n$1 ")
-    .replace(/\n+/g, "\n")
+    .replace(/,(?=\s*(예매|현매|예판|당일|door))/gi, "\n")
+    .replace(/\s{2,}/g, " ")
     .trim();
 
-  const lines = flattened
+  const parts = normalized
     .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line: string) => {
-      const priceMatch = line.match(/(\d[\d,\s]*\d|\d)\s*원/i);
-      let next = line;
+    .map((part) => part.trim())
+    .filter(Boolean);
 
-      if (priceMatch) {
-        const digits = priceMatch[1].replace(/[^\d]/g, "");
-        if (digits) {
-          next = next.replace(priceMatch[0], `${Number(digits).toLocaleString("ko-KR")}원`);
-        }
-      }
+  const result = parts.map((part) => {
+    const labelMatch = part.match(/(예매|현매|예판|당일|door)/i);
+    const label = labelMatch ? labelMatch[1].replace(/^door$/i, "현매") : "";
 
-      next = next.replace(/^(예매|현매|예판|당일|door)\s*/i, (_match: string, label: string) => `${label} `);
-      return next.replace(/\s{2,}/g, " ").trim();
-    });
+    const digits = part.match(/\d[\d,]*/)?.[0]?.replace(/,/g, "") || "";
+    const amount = digits ? `${Number(digits).toLocaleString("ko-KR")}원` : "";
 
-  return Array.from(new Set(lines));
-}
+    const freeText = /free entry|무료|free/i.test(part)
+      ? part.replace(/\s{2,}/g, " ").trim()
+      : "";
 
-function isValidPoster(url?: string) {
-  const value = toText(url);
-  return !!value && !value.startsWith("data:") && (value.startsWith("http://") || value.startsWith("https://"));
-}
+    if (label && amount) return `${label} ${amount}`;
+    if (label && !amount) return part.replace(/\s{2,}/g, " ").trim();
+    if (!label && amount) return amount;
+    if (freeText) return freeText;
+    return part.replace(/\s{2,}/g, " ").trim();
+  });
 
-function venueSearchCandidates(venueName: string) {
-  const value = toText(venueName);
-  return Array.from(new Set([value, `${value} 라이브클럽`, `${value} 공연장`, `${value} 서울`, `${value} 홍대`].filter(Boolean)));
+  return Array.from(new Set(result.filter(Boolean)));
 }
 
 function normalizeEvent(id: string, raw: Record<string, unknown>): EventItem {
@@ -135,9 +161,15 @@ function normalizeEvent(id: string, raw: Record<string, unknown>): EventItem {
     venueName: toText(raw.venueName),
     artistNames: toText(raw.artistNames),
     sourceUrl: toText(raw.sourceUrl),
+    instagramUrl: toText((raw as Record<string, unknown>).instagramUrl),
     price: toText(raw.price),
     posterUrl: toText(raw.posterUrl),
   };
+}
+
+function venueSearchCandidates(venueName: string) {
+  const value = toText(venueName);
+  return Array.from(new Set([value, `${value} 공연장`, `${value} 라이브클럽`, `${value} 서울`, `${value} 홍대`].filter(Boolean)));
 }
 
 export default function Home() {
@@ -146,19 +178,21 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [viewMode, setViewMode] = useState<"list" | "map" | "calendar">("list");
-  const [mapLoaded, setMapLoaded] = useState(false);
-  const [mapError, setMapError] = useState("");
-  const [activeVenue, setActiveVenue] = useState<string>("");
-  const [activeDate, setActiveDate] = useState<string>("");
   const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState("");
+  const [mapReady, setMapReady] = useState(false);
+  const [mapError, setMapError] = useState("");
+  const [origin, setOrigin] = useState("");
+  const [activeVenue, setActiveVenue] = useState("");
 
-  const mapRef = useRef<HTMLDivElement | null>(null);
-  const mapInstanceRef = useRef<any>(null);
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const markersRef = useRef<any[]>([]);
-  const overlaysRef = useRef<any[]>([]);
 
   const kakaoKey = process.env.NEXT_PUBLIC_KAKAO_MAP_API_KEY;
+
+  useEffect(() => {
+    if (typeof window !== "undefined") setOrigin(window.location.origin);
+  }, []);
 
   useEffect(() => {
     const fetchEvents = async () => {
@@ -181,7 +215,6 @@ export default function Home() {
   const filteredEvents = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return events;
-
     return events.filter((event) =>
       [event.title, event.venueName, event.artistNames]
         .filter(Boolean)
@@ -189,93 +222,103 @@ export default function Home() {
     );
   }, [events, searchQuery]);
 
-  const sortedEvents = useMemo(
-    () => [...filteredEvents].sort((a, b) => eventTimestamp(a) - eventTimestamp(b)),
-    [filteredEvents]
-  );
+  const sortedEvents = useMemo(() => {
+    return [...filteredEvents].sort((a, b) => eventTimestamp(a) - eventTimestamp(b));
+  }, [filteredEvents]);
 
   const venueBuckets = useMemo(() => {
-    const map = new Map<string, EventItem[]>();
+    const bucket = new Map<string, EventItem[]>();
     sortedEvents.forEach((event) => {
       const venue = toText(event.venueName);
       if (!venue) return;
-      map.set(venue, [...(map.get(venue) ?? []), event]);
+      bucket.set(venue, [...(bucket.get(venue) || []), event]);
     });
-
-    return Array.from(map.entries()).map(([venueName, bucketEvents]) => ({
-      venueName,
-      events: bucketEvents,
-    }));
+    return Array.from(bucket.entries()).map(([venueName, items]) => ({ venueName, events: items }));
   }, [sortedEvents]);
 
-  const activeVenueBucket = useMemo(() => {
-    const venue = activeVenue || venueBuckets[0]?.venueName || "";
-    return venueBuckets.find((bucket) => bucket.venueName === venue) ?? null;
-  }, [activeVenue, venueBuckets]);
-
   useEffect(() => {
-    if (!activeVenueBucket && venueBuckets[0]?.venueName) {
+    if (!activeVenue && venueBuckets[0]?.venueName) {
       setActiveVenue(venueBuckets[0].venueName);
     }
-  }, [activeVenueBucket, venueBuckets]);
+  }, [activeVenue, venueBuckets]);
 
-  const highlightedEvent = sortedEvents[0] ?? null;
-  const cardEvents = highlightedEvent ? sortedEvents.slice(1) : sortedEvents;
+  const activeVenueEvents = useMemo(() => {
+    if (!activeVenue) return [] as EventItem[];
+    return sortedEvents.filter((event) => event.venueName === activeVenue);
+  }, [activeVenue, sortedEvents]);
+
+  const calendarCells = useMemo(() => {
+    const year = currentMonth.getFullYear();
+    const month = currentMonth.getMonth();
+    const firstDay = new Date(year, month, 1).getDay();
+    const totalDays = new Date(year, month + 1, 0).getDate();
+    const cells: Array<CalendarCell | null> = [];
+
+    for (let i = 0; i < firstDay; i += 1) cells.push(null);
+
+    for (let day = 1; day <= totalDays; day += 1) {
+      const key = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      const dayEvents = sortedEvents.filter((event) => normalizeDate(event.date) === key);
+      cells.push({ key, day, events: dayEvents });
+    }
+
+    return cells;
+  }, [currentMonth, sortedEvents]);
 
   useEffect(() => {
-    if (viewMode !== "map") return;
-    if (!kakaoKey) {
-      setMapError("NEXT_PUBLIC_KAKAO_MAP_API_KEY를 확인하세요.");
-      return;
-    }
-    if (!mapLoaded || !window.kakao?.maps || !mapRef.current) return;
+    const validKeys = calendarCells.filter(Boolean).map((cell) => cell!.key);
+    if (selectedDate && validKeys.includes(selectedDate)) return;
+    const firstWithEvents = calendarCells.find((cell) => cell && cell.events.length)?.key || "";
+    setSelectedDate(firstWithEvents);
+  }, [calendarCells, selectedDate]);
 
-    let cancelled = false;
-    let initialized = false;
-    setMapError("");
+  const selectedDateEvents = useMemo(() => {
+    if (!selectedDate) return [] as EventItem[];
+    return sortedEvents.filter((event) => normalizeDate(event.date) === selectedDate);
+  }, [selectedDate, sortedEvents]);
+
+  useEffect(() => {
+    if (!mapReady) return;
 
     const timer = window.setTimeout(() => {
-      if (!initialized && !cancelled) {
-        setMapError("지도 초기화에 실패했습니다. 카카오 Developers에 현재 도메인을 등록했는지 확인하세요.");
+      if (!window.kakao?.maps) {
+        setMapError(`카카오 지도 스크립트를 불러오지 못했습니다. Kakao Developers에 ${origin || "현재 도메인"} 을 JavaScript SDK 도메인으로 등록하세요.`);
       }
-    }, 3000);
+    }, 1200);
+
+    return () => window.clearTimeout(timer);
+  }, [mapReady, origin]);
+
+  useEffect(() => {
+    if (!mapReady || !window.kakao?.maps?.services || !mapContainerRef.current) return;
+    if (!venueBuckets.length) return;
+
+    let cancelled = false;
 
     window.kakao.maps.load(() => {
-      initialized = true;
-      window.clearTimeout(timer);
-      if (cancelled || !mapRef.current) return;
+      if (cancelled || !mapContainerRef.current) return;
 
-      const map = new window.kakao.maps.Map(mapRef.current, {
+      const map = new window.kakao.maps.Map(mapContainerRef.current, {
         center: new window.kakao.maps.LatLng(DEFAULT_CENTER.lat, DEFAULT_CENTER.lng),
         level: 6,
       });
 
-      mapInstanceRef.current = map;
-
       markersRef.current.forEach((marker) => marker.setMap(null));
-      overlaysRef.current.forEach((overlay) => overlay.setMap(null));
       markersRef.current = [];
-      overlaysRef.current = [];
 
-      const bounds = new window.kakao.maps.LatLngBounds();
       const places = new window.kakao.maps.services.Places();
-
-      if (!venueBuckets.length) {
-        setMapError("지도에 표시할 공연장이 없습니다.");
-        return;
-      }
-
-      let resolved = 0;
+      const bounds = new window.kakao.maps.LatLngBounds();
       let found = 0;
+      let resolved = 0;
 
-      const finishOne = () => {
+      const done = () => {
         resolved += 1;
         if (resolved === venueBuckets.length) {
           if (found > 0) {
             map.setBounds(bounds);
             setMapError("");
           } else {
-            setMapError("공연장 좌표를 찾지 못했습니다. 카카오 도메인 설정과 장소명을 확인하세요.");
+            setMapError(`공연장 좌표를 찾지 못했습니다. Kakao Developers에 ${origin || "현재 도메인"} 을 JavaScript SDK 도메인으로 등록했는지 확인하세요.`);
           }
         }
       };
@@ -286,7 +329,7 @@ export default function Home() {
         const searchAt = (index: number) => {
           if (cancelled) return;
           if (index >= queries.length) {
-            finishOne();
+            done();
             return;
           }
 
@@ -294,26 +337,25 @@ export default function Home() {
             if (cancelled) return;
 
             if (status === window.kakao.maps.services.Status.OK && data?.length) {
-              const first = data[0];
-              const position = new window.kakao.maps.LatLng(Number(first.y), Number(first.x));
+              const place = data[0];
+              const position = new window.kakao.maps.LatLng(Number(place.y), Number(place.x));
               const marker = new window.kakao.maps.Marker({ map, position });
               markersRef.current.push(marker);
               bounds.extend(position);
               found += 1;
 
-              const overlay = new window.kakao.maps.CustomOverlay({
-                position,
-                yAnchor: 1.6,
-                content: `<button class="kakao-dot-label">${bucket.venueName}</button>`,
+              const info = new window.kakao.maps.InfoWindow({
+                content: `<div style="padding:8px 10px;font-size:12px;font-weight:700;color:#111827;background:#ffffff;border:1px solid #e5e7eb;border-radius:999px;">${bucket.venueName}</div>`,
               });
-              overlay.setMap(map);
-              overlaysRef.current.push(overlay);
 
+              window.kakao.maps.event.addListener(marker, "mouseover", () => info.open(map, marker));
+              window.kakao.maps.event.addListener(marker, "mouseout", () => info.close());
               window.kakao.maps.event.addListener(marker, "click", () => {
                 setActiveVenue(bucket.venueName);
+                map.panTo(position);
               });
 
-              finishOne();
+              done();
               return;
             }
 
@@ -327,435 +369,271 @@ export default function Home() {
 
     return () => {
       cancelled = true;
-      window.clearTimeout(timer);
+      markersRef.current.forEach((marker) => marker.setMap(null));
     };
-  }, [viewMode, mapLoaded, kakaoKey, venueBuckets]);
-
-  const calendarDays = useMemo(() => {
-    const year = currentMonth.getFullYear();
-    const month = currentMonth.getMonth();
-    const firstDay = new Date(year, month, 1).getDay();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const cells: Array<{ day: number; key: string; events: EventItem[] } | null> = [];
-
-    for (let i = 0; i < firstDay; i += 1) cells.push(null);
-
-    for (let day = 1; day <= daysInMonth; day += 1) {
-      const key = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-      const dayEvents = sortedEvents.filter((event) => normalizeDate(event.date) === key);
-      cells.push({ day, key, events: dayEvents });
-    }
-
-    return cells;
-  }, [currentMonth, sortedEvents]);
-
-  const selectedDateEvents = useMemo(() => {
-    if (!activeDate) return [] as EventItem[];
-    return sortedEvents.filter((event) => normalizeDate(event.date) === activeDate);
-  }, [activeDate, sortedEvents]);
+  }, [mapReady, venueBuckets, origin]);
 
   return (
-    <main className="min-h-screen px-4 pb-14 pt-6 md:px-8 md:pb-20 md:pt-8">
+    <main className="min-h-screen bg-[var(--bg)] text-[var(--text)]">
       {kakaoKey ? (
         <Script
           src={`https://dapi.kakao.com/v2/maps/sdk.js?appkey=${kakaoKey}&libraries=services&autoload=false`}
           strategy="afterInteractive"
-          onLoad={() => setMapLoaded(true)}
-          onError={() => setMapError("카카오 지도 스크립트를 불러오지 못했습니다.")}
+          onLoad={() => setMapReady(true)}
+          onError={() => setMapError(`카카오 지도 스크립트를 불러오지 못했습니다. Kakao Developers에 ${origin || "현재 도메인"} 을 JavaScript SDK 도메인으로 등록하세요.`)}
         />
       ) : null}
 
-      <div className="mx-auto max-w-[1440px] space-y-8">
-        <header className="site-shell overflow-hidden rounded-[32px] px-5 py-5 md:px-7 md:py-6">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div className="space-y-3">
-              <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-300">
-                <span className="h-2 w-2 rounded-full bg-cyan-300" />
-                Live Club Schedule
-              </div>
-              <h1 className="max-w-4xl text-[44px] font-black leading-[0.92] tracking-[-0.06em] text-white md:text-[72px] lg:text-[92px]">
-                라이브클럽과
-                <br />
-                인디공연장 일정
-              </h1>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-3 lg:justify-end">
-              <Link
-                href="/admin"
-                className="inline-flex h-11 items-center rounded-full border border-white/10 bg-white/5 px-5 text-sm font-semibold text-white transition hover:bg-white/10"
-              >
-                Admin
-              </Link>
-            </div>
+      <div className="mx-auto max-w-6xl px-4 pb-16 pt-8 md:px-8 md:pt-10">
+        <header className="mb-8 flex items-end justify-between gap-4 border-b border-[var(--line)] pb-6">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">Seoul Indie Live</p>
+            <h1 className="mt-2 text-4xl font-semibold tracking-[-0.04em] text-white md:text-6xl">Concert Schedule</h1>
           </div>
+          <Link href="/admin" className="inline-flex h-11 items-center rounded-full border border-[var(--line)] px-5 text-sm font-medium text-[var(--text)] transition hover:border-[var(--accent)] hover:text-white">
+            Admin
+          </Link>
         </header>
 
-        <section className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
-          <div className="site-shell rounded-[32px] p-4 md:p-5">
-            <div className="grid gap-3 md:grid-cols-[1fr_auto]">
-              <div className="rounded-[24px] border border-white/10 bg-black/20 px-4 py-3">
-                <input
-                  value={searchQuery}
-                  onChange={(event) => setSearchQuery(event.target.value)}
-                  placeholder="공연명, 공연장, 아티스트 검색"
-                  className="w-full bg-transparent text-base text-white outline-none placeholder:text-slate-500"
-                />
-              </div>
-              <div className="grid grid-cols-3 gap-2 rounded-[24px] border border-white/10 bg-black/20 p-1.5">
-                <ModeButton active={viewMode === "list"} onClick={() => setViewMode("list")}>목록</ModeButton>
-                <ModeButton active={viewMode === "map"} onClick={() => setViewMode("map")}>지도</ModeButton>
-                <ModeButton active={viewMode === "calendar"} onClick={() => setViewMode("calendar")}>달력</ModeButton>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid gap-5 md:grid-cols-3 lg:grid-cols-3">
-            <StatCard label="공연" value={String(sortedEvents.length).padStart(2, "0")} />
-            <StatCard label="공연장" value={String(venueBuckets.length).padStart(2, "0")} />
-            <StatCard label="보기" value={viewMode === "list" ? "LIST" : viewMode === "map" ? "MAP" : "CAL"} />
-          </div>
+        <section className="panel mb-8 p-4 md:p-5">
+          <input
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="공연명, 공연장, 아티스트 검색"
+            className="h-14 w-full rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] px-4 text-base text-white outline-none transition focus:border-[var(--accent)]"
+          />
         </section>
 
         {loading ? (
-          <section className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
-            <div className="site-shell h-[440px] animate-pulse rounded-[32px]" />
-            <div className="grid gap-5">
-              <div className="site-shell h-[210px] animate-pulse rounded-[32px]" />
-              <div className="site-shell h-[210px] animate-pulse rounded-[32px]" />
-            </div>
-          </section>
+          <div className="space-y-4">
+            <div className="panel h-32 animate-pulse" />
+            <div className="panel h-80 animate-pulse" />
+            <div className="panel h-80 animate-pulse" />
+          </div>
         ) : loadError ? (
-          <section className="site-shell rounded-[32px] p-8 text-center text-rose-200">{loadError}</section>
-        ) : viewMode === "list" ? (
-          <section className="space-y-5">
-            {highlightedEvent ? (
-              <button
-                type="button"
-                onClick={() => router.push(`/events/${highlightedEvent.id}`)}
-                className="event-hero-card group w-full overflow-hidden rounded-[32px] border border-white/10 text-left shadow-[0_30px_90px_rgba(0,0,0,0.32)] transition hover:-translate-y-0.5"
-              >
-                <div className="grid min-h-[420px] gap-0 lg:grid-cols-[0.84fr_1.16fr]">
-                  <div className="border-b border-white/10 bg-black/25 lg:border-b-0 lg:border-r">
-                    {isValidPoster(highlightedEvent.posterUrl) ? (
-                      <img
-                        src={highlightedEvent.posterUrl}
-                        alt={highlightedEvent.title || "공연 포스터"}
-                        className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.02]"
-                        loading="lazy"
-                        decoding="async"
-                        referrerPolicy="no-referrer"
-                      />
-                    ) : (
-                      <div className="flex h-full min-h-[280px] items-end bg-[radial-gradient(circle_at_top_left,rgba(61,197,255,0.22),transparent_28%),linear-gradient(180deg,#10182d,#0a1020)] p-6">
-                        <span className="rounded-full border border-white/10 bg-white/8 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-slate-200">
-                          Featured
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex flex-col justify-between p-6 md:p-8 lg:p-10">
-                    <div className="space-y-5">
-                      <div className="flex flex-wrap gap-2">
-                        <Chip>{formatSchedule(highlightedEvent)}</Chip>
-                        {highlightedEvent.venueName ? <Chip>{highlightedEvent.venueName}</Chip> : null}
-                      </div>
-
-                      <h2 className="max-w-4xl text-3xl font-black leading-[1.02] tracking-[-0.05em] text-white md:text-5xl lg:text-6xl">
-                        {highlightedEvent.title || "제목 없는 공연"}
-                      </h2>
-
-                      {highlightedEvent.artistNames ? (
-                        <p className="max-w-3xl text-base leading-8 text-slate-300 md:text-lg">{highlightedEvent.artistNames}</p>
-                      ) : null}
-                    </div>
-
-                    <div className="grid gap-6 border-t border-white/10 pt-6 md:grid-cols-[1fr_auto] md:items-end">
-                      <div className="space-y-3 text-sm text-slate-300">
-                        {formatPriceLines(highlightedEvent.price).slice(0, 2).map((line) => (
-                          <p key={`${highlightedEvent.id}-${line}`} className="text-base font-semibold text-cyan-300">
-                            {line}
-                          </p>
-                        ))}
-                      </div>
-                      <div className="inline-flex items-center gap-2 text-sm font-semibold text-white">
-                        상세 보기
-                        <span className="transition-transform group-hover:translate-x-1">→</span>
-                      </div>
-                    </div>
+          <div className="panel p-6 text-sm text-rose-300">{loadError}</div>
+        ) : (
+          <>
+            <section className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+              <div className="panel p-4 md:p-5">
+                <div className="mb-5 flex items-center justify-between">
+                  <h2 className="text-lg font-semibold text-white">Calendar</h2>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))}
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--line)] text-sm text-[var(--text)] transition hover:border-[var(--accent)]"
+                    >
+                      ←
+                    </button>
+                    <span className="min-w-[120px] text-center text-sm font-medium text-white">
+                      {currentMonth.getFullYear()}.{String(currentMonth.getMonth() + 1).padStart(2, "0")}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))}
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--line)] text-sm text-[var(--text)] transition hover:border-[var(--accent)]"
+                    >
+                      →
+                    </button>
                   </div>
                 </div>
-              </button>
-            ) : null}
 
-            <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-              {cardEvents.map((event) => (
-                <EventCard key={event.id} event={event} onOpen={() => router.push(`/events/${event.id}`)} />
-              ))}
-            </div>
-          </section>
-        ) : viewMode === "map" ? (
-          <section className="grid gap-5 xl:grid-cols-[1.35fr_0.65fr]">
-            <div className="site-shell overflow-hidden rounded-[32px] p-3 md:p-4">
-              <div className="relative overflow-hidden rounded-[24px] border border-white/10 bg-[#08101d]">
-                <div ref={mapRef} className="h-[72vh] min-h-[520px] w-full" />
-                {!mapLoaded && !mapError ? (
-                  <div className="absolute inset-0 flex items-center justify-center bg-[#08101d]/70">
-                    <p className="text-sm font-medium text-slate-400">지도를 불러오는 중입니다.</p>
-                  </div>
-                ) : null}
-                {mapError ? (
-                  <div className="absolute left-4 right-4 top-4 rounded-2xl border border-amber-300/20 bg-black/70 p-4 text-sm leading-6 text-amber-100 backdrop-blur">
-                    {mapError}
-                    <div className="mt-2 text-amber-200/80">
-                      Kakao Developers → 앱 → 플랫폼 키 → JavaScript 키 → JavaScript SDK 도메인에 현재 Vercel 주소를 추가하세요.
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-
-            <aside className="site-shell rounded-[32px] p-4 md:p-5">
-              <div className="flex items-center justify-between border-b border-white/10 pb-4">
-                <h2 className="text-lg font-bold text-white">공연장</h2>
-                <span className="text-sm text-slate-400">{venueBuckets.length}</span>
-              </div>
-
-              <div className="custom-scrollbar mt-4 max-h-[68vh] space-y-2 overflow-y-auto pr-1">
-                {venueBuckets.map((bucket) => {
-                  const active = bucket.venueName === (activeVenueBucket?.venueName || activeVenue);
-                  return (
-                    <button
-                      key={bucket.venueName}
-                      type="button"
-                      onClick={() => setActiveVenue(bucket.venueName)}
-                      className={`w-full rounded-[22px] border px-4 py-4 text-left transition ${
-                        active
-                          ? "border-cyan-300/30 bg-cyan-300/12"
-                          : "border-white/10 bg-black/16 hover:bg-white/[0.04]"
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-base font-semibold text-white">{bucket.venueName}</p>
-                          <p className="mt-1 text-sm text-slate-400">{bucket.events.length}개의 일정</p>
-                        </div>
-                        <span className="rounded-full bg-white/8 px-2.5 py-1 text-xs font-semibold text-slate-300">
-                          {bucket.events.length}
-                        </span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {activeVenueBucket ? (
-                <div className="mt-5 space-y-3 border-t border-white/10 pt-5">
-                  {activeVenueBucket.events.map((event) => (
-                    <EventRow key={event.id} event={event} onOpen={() => router.push(`/events/${event.id}`)} />
+                <div className="grid grid-cols-7 gap-2 text-center text-xs font-medium text-[var(--muted)] md:gap-3">
+                  {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+                    <div key={day} className="pb-2">{day}</div>
                   ))}
                 </div>
-              ) : null}
-            </aside>
-          </section>
-        ) : (
-          <section className="site-shell rounded-[32px] p-4 md:p-5">
-            <div className="flex items-center justify-between border-b border-white/10 pb-4">
-              <button
-                type="button"
-                onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))}
-                className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
-              >
-                ←
-              </button>
-              <h2 className="text-xl font-bold text-white">
-                {currentMonth.getFullYear()}년 {currentMonth.getMonth() + 1}월
-              </h2>
-              <button
-                type="button"
-                onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))}
-                className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
-              >
-                →
-              </button>
-            </div>
 
-            <div className="mt-5 grid grid-cols-7 gap-2 text-center text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 md:gap-3 md:text-sm">
-              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
-                <div key={day} className="py-2">{day}</div>
-              ))}
-            </div>
-
-            <div className="mt-3 grid grid-cols-7 gap-2 md:gap-3">
-              {calendarDays.map((cell, index) =>
-                cell ? (
-                  <button
-                    key={cell.key}
-                    type="button"
-                    onClick={() => cell.events.length && setActiveDate(cell.key)}
-                    className={`aspect-[1/1.02] rounded-[24px] border p-3 text-left transition ${
-                      cell.events.length
-                        ? "border-cyan-300/15 bg-cyan-300/[0.06] hover:bg-cyan-300/[0.1]"
-                        : "border-white/8 bg-black/16"
-                    }`}
-                  >
-                    <div className="text-lg font-bold text-white">{cell.day}</div>
-                    {cell.events.length ? (
-                      <div className="mt-3 space-y-1">
-                        {cell.events.slice(0, 2).map((event) => (
-                          <p key={event.id} className="truncate text-[11px] font-medium text-cyan-200 md:text-xs">
-                            {event.title}
-                          </p>
-                        ))}
-                        {cell.events.length > 2 ? (
-                          <p className="text-[11px] text-slate-400 md:text-xs">+{cell.events.length - 2}</p>
+                <div className="grid grid-cols-7 gap-2 md:gap-3">
+                  {calendarCells.map((cell, index) =>
+                    cell ? (
+                      <button
+                        key={cell.key}
+                        type="button"
+                        onClick={() => setSelectedDate(cell.key)}
+                        className={`calendar-cell ${cell.key === selectedDate ? "calendar-cell-active" : ""}`}
+                      >
+                        <span className="text-sm font-semibold text-white md:text-base">{cell.day}</span>
+                        {cell.events.length ? (
+                          <span className="mt-2 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-[var(--accent-soft)] px-1.5 text-[11px] font-semibold text-[var(--accent)]">
+                            {cell.events.length}
+                          </span>
                         ) : null}
-                      </div>
-                    ) : null}
-                  </button>
+                      </button>
+                    ) : (
+                      <div key={`blank-${index}`} className="calendar-cell-empty" />
+                    )
+                  )}
+                </div>
+              </div>
+
+              <aside className="panel p-4 md:p-5">
+                <div className="border-b border-[var(--line)] pb-4">
+                  <h2 className="text-lg font-semibold text-white">Selected Day</h2>
+                  <p className="mt-1 text-sm text-[var(--muted)]">{selectedDate || "이 달에 일정이 없습니다."}</p>
+                </div>
+
+                <div className="mt-4 space-y-3">
+                  {selectedDateEvents.length ? (
+                    selectedDateEvents.map((event) => (
+                      <ScheduleRow key={event.id} event={event} onOpen={() => router.push(`/events/${event.id}`)} />
+                    ))
+                  ) : (
+                    <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] px-4 py-5 text-sm text-[var(--muted)]">
+                      선택한 날짜에 공연이 없습니다.
+                    </div>
+                  )}
+                </div>
+              </aside>
+            </section>
+
+            <section className="mt-8 panel p-4 md:p-5">
+              <div className="mb-5 flex items-center justify-between border-b border-[var(--line)] pb-4">
+                <h2 className="text-lg font-semibold text-white">Upcoming</h2>
+                <span className="text-sm text-[var(--muted)]">{sortedEvents.length} items</span>
+              </div>
+
+              <div className="divide-y divide-[var(--line)]">
+                {sortedEvents.length ? (
+                  sortedEvents.map((event) => (
+                    <EventListRow key={event.id} event={event} onOpen={() => router.push(`/events/${event.id}`)} />
+                  ))
                 ) : (
-                  <div key={`blank-${index}`} className="aspect-[1/1.02] rounded-[24px] border border-transparent" />
-                )
-              )}
-            </div>
-          </section>
+                  <div className="py-10 text-sm text-[var(--muted)]">검색 결과가 없습니다.</div>
+                )}
+              </div>
+            </section>
+
+            <section className="mt-8 grid gap-6 lg:grid-cols-[1.12fr_0.88fr]">
+              <div className="panel overflow-hidden p-4 md:p-5">
+                <div className="mb-4 border-b border-[var(--line)] pb-4">
+                  <h2 className="text-lg font-semibold text-white">Map</h2>
+                  {mapError ? <p className="mt-1 text-sm leading-6 text-[var(--muted)]">{mapError}</p> : null}
+                </div>
+                <div className="overflow-hidden rounded-3xl border border-[var(--line)] bg-[#121418]">
+                  <div ref={mapContainerRef} className="h-[440px] w-full" />
+                </div>
+              </div>
+
+              <aside className="panel p-4 md:p-5">
+                <div className="mb-4 border-b border-[var(--line)] pb-4">
+                  <h2 className="text-lg font-semibold text-white">Venues</h2>
+                </div>
+                <div className="space-y-3">
+                  {venueBuckets.length ? (
+                    venueBuckets.map((bucket) => (
+                      <button
+                        key={bucket.venueName}
+                        type="button"
+                        onClick={() => setActiveVenue(bucket.venueName)}
+                        className={`w-full rounded-2xl border px-4 py-4 text-left transition ${bucket.venueName === activeVenue
+                            ? "border-[var(--accent)] bg-[var(--accent-soft)]"
+                            : "border-[var(--line)] bg-[var(--panel-2)] hover:border-[var(--accent)]/60"
+                          }`}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="font-medium text-white">{bucket.venueName}</span>
+                          <span className="text-sm text-[var(--muted)]">{bucket.events.length}</span>
+                        </div>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] px-4 py-5 text-sm text-[var(--muted)]">
+                      표시할 공연장이 없습니다.
+                    </div>
+                  )}
+                </div>
+
+                {activeVenueEvents.length ? (
+                  <div className="mt-5 space-y-3 border-t border-[var(--line)] pt-5">
+                    {activeVenueEvents.map((event) => (
+                      <ScheduleRow key={event.id} event={event} onOpen={() => router.push(`/events/${event.id}`)} />
+                    ))}
+                  </div>
+                ) : null}
+              </aside>
+            </section>
+          </>
         )}
       </div>
-
-      {activeDate && selectedDateEvents.length ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 md:items-center md:p-4" onClick={() => setActiveDate("")}>
-          <div
-            className="site-shell custom-scrollbar max-h-[84vh] w-full max-w-2xl overflow-y-auto rounded-t-[32px] p-5 md:rounded-[32px] md:p-6"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-xl font-bold text-white">{activeDate}</h3>
-              <button
-                type="button"
-                onClick={() => setActiveDate("")}
-                className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
-              >
-                닫기
-              </button>
-            </div>
-            <div className="space-y-3">
-              {selectedDateEvents.map((event) => (
-                <EventRow key={event.id} event={event} onOpen={() => router.push(`/events/${event.id}`)} />
-              ))}
-            </div>
-          </div>
-        </div>
-      ) : null}
     </main>
   );
 }
 
-function ModeButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-[18px] px-4 py-3 text-sm font-semibold transition ${
-        active ? "bg-white text-slate-950" : "text-slate-400 hover:text-white"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
-function StatCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="site-shell rounded-[28px] px-5 py-5">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-slate-500">{label}</p>
-      <p className="mt-4 text-[32px] font-black tracking-[-0.05em] text-white">{value}</p>
-    </div>
-  );
-}
-
-function Chip({ children }: { children: React.ReactNode }) {
-  return <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-slate-200">{children}</span>;
-}
-
-function EventCard({ event, onOpen }: { event: EventItem; onOpen: () => void }) {
+function EventListRow({ event, onOpen }: { event: EventItem; onOpen: () => void }) {
   const priceLines = formatPriceLines(event.price);
-  const externalUrl = formatExternalUrl(event.sourceUrl);
+  const instagramUrl = extractInstagramUrl(event);
+  const infoUrl = extractInfoLink(event);
 
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="site-shell group overflow-hidden rounded-[28px] border border-white/10 text-left transition hover:-translate-y-0.5"
-    >
-      <div className="flex h-full flex-col">
-        {isValidPoster(event.posterUrl) ? (
-          <div className="aspect-[1.2/1] overflow-hidden border-b border-white/10 bg-black/20">
-            <img
-              src={event.posterUrl}
-              alt={event.title || "공연 포스터"}
-              className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]"
-              loading="lazy"
-              decoding="async"
-              referrerPolicy="no-referrer"
-            />
-          </div>
-        ) : (
-          <div className="aspect-[1.2/1] border-b border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(61,197,255,0.15),transparent_28%),linear-gradient(180deg,#0c1426,#09111d)]" />
-        )}
-
-        <div className="flex flex-1 flex-col p-5">
-          <div className="flex flex-wrap gap-2">
-            <Chip>{formatSchedule(event)}</Chip>
-            {event.venueName ? <Chip>{event.venueName}</Chip> : null}
-          </div>
-
-          <h3 className="mt-4 text-[28px] font-black leading-[1.08] tracking-[-0.04em] text-white">
-            {event.title || "제목 없는 공연"}
-          </h3>
-
-          {event.artistNames ? (
-            <p className="mt-4 line-clamp-2 text-sm leading-7 text-slate-300">{event.artistNames}</p>
-          ) : null}
-
-          {priceLines.length ? (
-            <div className="mt-5 flex flex-wrap gap-2">
-              {priceLines.map((line) => (
-                <span key={`${event.id}-${line}`} className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1.5 text-sm font-semibold text-cyan-200">
-                  {line}
-                </span>
-              ))}
+    <article className="py-5 first:pt-0 last:pb-0">
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <button type="button" onClick={onOpen} className="flex-1 text-left">
+          <p className="text-sm font-medium text-[var(--muted)]">{formatSchedule(event)}</p>
+          <h3 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-white">{event.title || "제목 없는 공연"}</h3>
+          <div className="mt-3 grid gap-2 text-sm text-[var(--muted)] md:grid-cols-3">
+            <span>{event.venueName || "장소 미정"}</span>
+            <span>{event.artistNames || "출연 정보 없음"}</span>
+            <div className="space-y-1">
+              {priceLines.length ? priceLines.map((line) => <div key={`${event.id}-${line}`} className="font-medium text-white">{line}</div>) : <span>티켓 정보 없음</span>}
             </div>
-          ) : null}
-
-          <div className="mt-auto flex items-center justify-between border-t border-white/10 pt-5 text-sm">
-            <span className="font-semibold text-white">상세 보기</span>
-            <span className="text-slate-500">{externalUrl ? "링크 있음" : "정보 확인"}</span>
           </div>
+        </button>
+
+        <div className="flex shrink-0 gap-2 md:pl-4">
+          {instagramUrl ? (
+            <a
+              href={instagramUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="secondary-btn"
+              onClick={(event) => event.stopPropagation()}
+            >
+              Instagram ↗
+            </a>
+          ) : null}
+          {infoUrl && infoUrl !== instagramUrl ? (
+            <a
+              href={infoUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="secondary-btn"
+              onClick={(event) => event.stopPropagation()}
+            >
+              Link ↗
+            </a>
+          ) : null}
+          <button type="button" onClick={onOpen} className="primary-btn">
+            Detail
+          </button>
         </div>
       </div>
-    </button>
+    </article>
   );
 }
 
-function EventRow({ event, onOpen }: { event: EventItem; onOpen: () => void }) {
+function ScheduleRow({ event, onOpen }: { event: EventItem; onOpen: () => void }) {
+  const instagramUrl = extractInstagramUrl(event);
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="w-full rounded-[22px] border border-white/10 bg-black/16 px-4 py-4 text-left transition hover:bg-white/[0.04]"
-    >
-      <p className="text-sm font-semibold text-cyan-200">{formatSchedule(event)}</p>
-      <p className="mt-2 text-base font-semibold text-white">{event.title || "제목 없는 공연"}</p>
-      {event.artistNames ? <p className="mt-2 line-clamp-2 text-sm text-slate-400">{event.artistNames}</p> : null}
-    </button>
+    <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] p-4">
+      <div className="flex items-start justify-between gap-3">
+        <button type="button" onClick={onOpen} className="flex-1 text-left">
+          <p className="text-sm font-medium text-[var(--muted)]">{formatSchedule(event)}</p>
+          <p className="mt-1 text-base font-medium text-white">{event.title || "제목 없는 공연"}</p>
+          {event.venueName ? <p className="mt-2 text-sm text-[var(--muted)]">{event.venueName}</p> : null}
+        </button>
+        <div className="flex gap-2">
+          {instagramUrl ? (
+            <a href={instagramUrl} target="_blank" rel="noreferrer" className="secondary-btn" onClick={(event) => event.stopPropagation()}>
+              Instagram
+            </a>
+          ) : null}
+          <button type="button" onClick={onOpen} className="secondary-btn">
+            Detail
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

@@ -1,15 +1,21 @@
+@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css");
 @import "tailwindcss";
 
 :root {
-  --background: #030815;
-  --foreground: #f8fafc;
+  --bg: #0f1115;
+  --panel: #15181d;
+  --panel-2: #191d23;
+  --line: #262b34;
+  --text: #f3f4f6;
+  --muted: #9aa3b2;
+  --accent: #6b6dff;
+  --accent-soft: rgba(107, 109, 255, 0.12);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-background: var(--bg);
+  --color-foreground: var(--text);
+  --font-sans: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 * {
@@ -23,24 +29,9 @@ html {
 body {
   margin: 0;
   min-height: 100vh;
-  background:
-    radial-gradient(circle at 14% 18%, rgba(61, 197, 255, 0.14), transparent 24%),
-    radial-gradient(circle at 88% 8%, rgba(99, 102, 241, 0.16), transparent 20%),
-    linear-gradient(180deg, #061121 0%, #050b18 38%, #020611 100%);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
-}
-
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
-  background-size: 44px 44px;
-  mask-image: linear-gradient(180deg, rgba(255, 255, 255, 0.24), transparent 72%);
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 button,
@@ -57,56 +48,83 @@ img {
 }
 
 ::selection {
-  background: rgba(61, 197, 255, 0.24);
+  background: rgba(107, 109, 255, 0.24);
 }
 
-.custom-scrollbar {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(148, 163, 184, 0.36) transparent;
+.panel {
+  border-radius: 28px;
+  border: 1px solid var(--line);
+  background: var(--panel);
 }
 
-.custom-scrollbar::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  border-radius: 999px;
-  background: rgba(148, 163, 184, 0.3);
-}
-
-.site-shell {
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: linear-gradient(180deg, rgba(10, 18, 34, 0.9), rgba(8, 13, 24, 0.92));
-  box-shadow:
-    0 24px 80px rgba(0, 0, 0, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.03);
-  backdrop-filter: blur(22px);
-}
-
-.event-hero-card {
-  background:
-    radial-gradient(circle at top right, rgba(99, 102, 241, 0.16), transparent 24%),
-    radial-gradient(circle at left, rgba(61, 197, 255, 0.12), transparent 18%),
-    linear-gradient(135deg, rgba(11, 18, 32, 0.98), rgba(8, 13, 24, 0.96));
-}
-
-.kakao-dot-label {
+.primary-btn,
+.secondary-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 34px;
-  padding: 0 14px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  height: 42px;
   border-radius: 999px;
-  background: rgba(10, 18, 34, 0.92);
-  color: #f8fafc;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.35);
+  padding: 0 16px;
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: 160ms ease;
+}
+
+.primary-btn {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: white;
+}
+
+.primary-btn:hover {
+  opacity: 0.92;
+}
+
+.secondary-btn {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+}
+
+.secondary-btn:hover {
+  border-color: var(--accent);
+  color: white;
+}
+
+.calendar-cell,
+.calendar-cell-empty {
+  min-height: 84px;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  padding: 12px;
+}
+
+.calendar-cell {
+  text-align: left;
+  transition: 160ms ease;
+}
+
+.calendar-cell:hover {
+  border-color: rgba(107, 109, 255, 0.48);
+}
+
+.calendar-cell-active {
+  border-color: var(--accent);
+  background: rgba(107, 109, 255, 0.1);
+}
+
+.calendar-cell-empty {
+  background: transparent;
+  border-color: transparent;
+}
+
+@media (max-width: 768px) {
+
+  .calendar-cell,
+  .calendar-cell-empty {
+    min-height: 70px;
+    padding: 10px;
+  }
 }
