@@ -184,15 +184,25 @@ export default function Home() {
   const [mapError, setMapError] = useState("");
   const [origin, setOrigin] = useState("");
   const [activeVenue, setActiveVenue] = useState("");
-
-  const mapContainerRef = useRef<HTMLDivElement | null>(null);
-  const markersRef = useRef<any[]>([]);
-
-  const kakaoKey = process.env.NEXT_PUBLIC_KAKAO_MAP_API_KEY;
+  const [savedEvents, setSavedEvents] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    if (typeof window !== "undefined") setOrigin(window.location.origin);
+    if (typeof window !== "undefined") {
+      setOrigin(window.location.origin);
+      const stored = localStorage.getItem("indieLiveSaved");
+      if (stored) setSavedEvents(new Set(JSON.parse(stored)));
+    }
   }, []);
+
+  const toggleSave = (id: string) => {
+    setSavedEvents((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      localStorage.setItem("indieLiveSaved", JSON.stringify(Array.from(next)));
+      return next;
+    });
+  };
 
   useEffect(() => {
     const fetchEvents = async () => {
@@ -223,7 +233,16 @@ export default function Home() {
   }, [events, searchQuery]);
 
   const sortedEvents = useMemo(() => {
-    return [...filteredEvents].sort((a, b) => eventTimestamp(a) - eventTimestamp(b));
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    const todayTimestamp = now.getTime();
+
+    return [...filteredEvents]
+      .filter((event) => {
+        const ts = eventTimestamp(event);
+        return ts >= todayTimestamp || ts === Number.POSITIVE_INFINITY;
+      })
+      .sort((a, b) => eventTimestamp(a) - eventTimestamp(b));
   }, [filteredEvents]);
 
   const venueBuckets = useMemo(() => {
@@ -477,7 +496,13 @@ export default function Home() {
                 <div className="mt-4 space-y-3">
                   {selectedDateEvents.length ? (
                     selectedDateEvents.map((event) => (
-                      <ScheduleRow key={event.id} event={event} onOpen={() => router.push(`/events/${event.id}`)} />
+                      <ScheduleRow
+                        key={event.id}
+                        event={event}
+                        onOpen={() => router.push(`/events/${event.id}`)}
+                        isSaved={savedEvents.has(event.id)}
+                        onToggleSave={() => toggleSave(event.id)}
+                      />
                     ))
                   ) : (
                     <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] px-4 py-5 text-sm text-[var(--muted)]">
@@ -497,7 +522,13 @@ export default function Home() {
               <div className="divide-y divide-[var(--line)]">
                 {sortedEvents.length ? (
                   sortedEvents.map((event) => (
-                    <EventListRow key={event.id} event={event} onOpen={() => router.push(`/events/${event.id}`)} />
+                    <EventListRow
+                      key={event.id}
+                      event={event}
+                      onOpen={() => router.push(`/events/${event.id}`)}
+                      isSaved={savedEvents.has(event.id)}
+                      onToggleSave={() => toggleSave(event.id)}
+                    />
                   ))
                 ) : (
                   <div className="py-10 text-sm text-[var(--muted)]">검색 결과가 없습니다.</div>
@@ -548,7 +579,13 @@ export default function Home() {
                 {activeVenueEvents.length ? (
                   <div className="mt-5 space-y-3 border-t border-[var(--line)] pt-5">
                     {activeVenueEvents.map((event) => (
-                      <ScheduleRow key={event.id} event={event} onOpen={() => router.push(`/events/${event.id}`)} />
+                      <ScheduleRow
+                        key={event.id}
+                        event={event}
+                        onOpen={() => router.push(`/events/${event.id}`)}
+                        isSaved={savedEvents.has(event.id)}
+                        onToggleSave={() => toggleSave(event.id)}
+                      />
                     ))}
                   </div>
                 ) : null}
@@ -561,21 +598,18 @@ export default function Home() {
   );
 }
 
-// ★ 수정: 포스터 없으면 인스타로 바로가는 EventListRow
 function EventListRow({ event, onOpen, isSaved, onToggleSave }: { event: EventItem; onOpen: () => void; isSaved: boolean; onToggleSave: () => void }) {
   const priceLines = formatPriceLines(event.price);
   const instagramUrl = extractInstagramUrl(event);
   const infoUrl = extractInfoLink(event);
 
-  // ★ 핵심: 어디로 갈지 결정하는 함수
   const handleOpen = (e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     const targetUrl = instagramUrl || infoUrl;
-    // 포스터가 없고 외부 링크가 있으면 새 창으로 열기!
     if (!event.posterUrl && targetUrl) {
       window.open(targetUrl, "_blank");
     } else {
-      onOpen(); // 포스터가 있으면 원래 상세 페이지로
+      onOpen();
     }
   };
 
@@ -607,6 +641,11 @@ function EventListRow({ event, onOpen, isSaved, onToggleSave }: { event: EventIt
               Instagram ↗
             </a>
           ) : null}
+          {infoUrl && infoUrl !== instagramUrl ? (
+            <a href={infoUrl} target="_blank" rel="noreferrer" className="secondary-btn" onClick={(event) => event.stopPropagation()}>
+              Link ↗
+            </a>
+          ) : null}
           <button type="button" onClick={handleOpen} className="primary-btn">
             Detail
           </button>
@@ -616,7 +655,6 @@ function EventListRow({ event, onOpen, isSaved, onToggleSave }: { event: EventIt
   );
 }
 
-// ★ 수정: 포스터 없으면 인스타로 바로가는 ScheduleRow
 function ScheduleRow({ event, onOpen, isSaved, onToggleSave }: { event: EventItem; onOpen: () => void; isSaved: boolean; onToggleSave: () => void }) {
   const instagramUrl = extractInstagramUrl(event);
   const infoUrl = extractInfoLink(event);
