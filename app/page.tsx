@@ -515,7 +515,20 @@ export default function Home() {
 
             {viewMode === "map" && (
               <section className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
-                <aside className="panel p-4 md:p-5">
+                <div className="order-1 panel overflow-hidden p-4 md:p-5 lg:order-2">
+                  <div className="mb-4 border-b border-[var(--line)] pb-4">
+                    <h2 className="text-lg font-semibold text-white">Map</h2>
+                    {mapError ? (
+                      <p className="mt-1 text-sm leading-6 text-[var(--muted)]">{mapError}</p>
+                    ) : null}
+                  </div>
+
+                  <div className="overflow-hidden rounded-3xl border border-[var(--line)] bg-[#121418]">
+                    <div ref={mapContainerRef} className="h-[440px] w-full" />
+                  </div>
+                </div>
+
+                <aside className="order-2 panel p-4 md:p-5 lg:order-1">
                   <div className="mb-4 border-b border-[var(--line)] pb-4">
                     <h2 className="text-lg font-semibold text-white">공연 지도</h2>
                   </div>
@@ -528,8 +541,8 @@ export default function Home() {
                           type="button"
                           onClick={() => setActiveVenue(bucket.venueName)}
                           className={`w-full rounded-2xl border px-4 py-4 text-left transition ${bucket.venueName === activeVenue
-                              ? "border-[var(--accent)] bg-[var(--accent-soft)]"
-                              : "border-[var(--line)] bg-[var(--panel-2)] hover:border-[var(--accent)]/60"
+                            ? "border-[var(--accent)] bg-[var(--accent-soft)]"
+                            : "border-[var(--line)] bg-[var(--panel-2)] hover:border-[var(--accent)]/60"
                             }`}
                         >
                           <div className="flex items-center justify-between gap-3">
@@ -559,17 +572,6 @@ export default function Home() {
                     </div>
                   ) : null}
                 </aside>
-
-                <div className="panel overflow-hidden p-4 md:p-5">
-                  <div className="mb-4 border-b border-[var(--line)] pb-4">
-                    <h2 className="text-lg font-semibold text-white">Map</h2>
-                    {mapError ? <p className="mt-1 text-sm leading-6 text-[var(--muted)]">{mapError}</p> : null}
-                  </div>
-
-                  <div className="overflow-hidden rounded-3xl border border-[var(--line)] bg-[#121418]">
-                    <div ref={mapContainerRef} className="h-[520px] w-full" />
-                  </div>
-                </div>
               </section>
             )}
 
@@ -675,8 +677,8 @@ function ViewTab({
       type="button"
       onClick={onClick}
       className={`inline-flex h-12 items-center rounded-2xl px-6 text-base font-medium transition ${active
-          ? "bg-white text-slate-950"
-          : "text-[var(--muted)] hover:text-white"
+        ? "bg-white text-slate-950"
+        : "text-[var(--muted)] hover:text-white"
         }`}
     >
       {children}
@@ -772,52 +774,72 @@ function ScheduleRow({
   onToggleSave: () => void;
 }) {
   const priceLines = formatPriceLines(event.price);
-  const instagramUrl = getInstagramLink(event);
+  const instagramUrl =
+    extractInstagramUrl(event) ||
+    extractInfoLink(event) ||
+    `https://www.instagram.com/explore/search/keyword/?q=${encodeURIComponent(
+      [event.title, event.venueName, event.artistNames].filter(Boolean).join(" ")
+    )}`;
 
   return (
     <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] p-4">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
-          <p className="text-sm font-medium text-[var(--muted)]">{formatSchedule(event)}</p>
-          <p className="mt-1 text-lg font-semibold text-white">{event.title || "제목 없는 공연"}</p>
+      <button type="button" onClick={onOpen} className="block w-full text-left">
+        <p className="text-sm font-medium text-[var(--muted)]">{formatSchedule(event)}</p>
+        <p className="mt-1 text-lg font-semibold text-white">{event.title || "제목 없는 공연"}</p>
 
-          <div className="mt-3 grid gap-3 md:grid-cols-[180px_minmax(0,1fr)_220px]">
-            <p className="min-w-0 text-sm text-[var(--muted)]">{event.venueName || "장소 미정"}</p>
-            <p className="min-w-0 break-words text-sm leading-6 text-zinc-200">{event.artistNames || "출연 정보 없음"}</p>
-            <div className="space-y-1 md:text-right">
+        <div className="mt-4 grid gap-4 lg:grid-cols-[180px_minmax(260px,1fr)_180px] lg:items-start">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Venue</p>
+            <p className="mt-2 break-words text-sm text-zinc-200">
+              {event.venueName || "장소 미정"}
+            </p>
+          </div>
+
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Artists</p>
+            <p className="mt-2 break-words whitespace-normal text-sm leading-6 text-zinc-200">
+              {event.artistNames || "출연 정보 없음"}
+            </p>
+          </div>
+
+          <div className="min-w-0 lg:text-right">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Ticket</p>
+            <div className="mt-2 space-y-1">
               {priceLines.length ? (
                 priceLines.map((line) => (
-                  <p key={`${event.id}-${line}`} className="text-sm font-medium text-white">{line}</p>
+                  <p key={`${event.id}-${line}`} className="text-sm font-medium text-white">
+                    {line}
+                  </p>
                 ))
               ) : (
                 <p className="text-sm text-[var(--muted)]">티켓 정보 없음</p>
               )}
             </div>
           </div>
+        </div>
+      </button>
+
+      <div className="mt-4 flex flex-wrap gap-2 lg:justify-end">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleSave();
+          }}
+          className={`secondary-btn ${isSaved ? "text-yellow-400 border-yellow-400/50" : ""}`}
+        >
+          {isSaved ? "★" : "☆"}
         </button>
 
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleSave();
-            }}
-            className={`secondary-btn ${isSaved ? "text-yellow-400 border-yellow-400/50" : ""}`}
-          >
-            {isSaved ? "★" : "☆"}
-          </button>
-
-          <a
-            href={instagramUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="secondary-btn"
-            onClick={(e) => e.stopPropagation()}
-          >
-            Instagram
-          </a>
-        </div>
+        <a
+          href={instagramUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="secondary-btn"
+          onClick={(e) => e.stopPropagation()}
+        >
+          Instagram
+        </a>
       </div>
     </div>
   );
