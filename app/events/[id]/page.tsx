@@ -88,6 +88,17 @@ function extractInstagramUrl(event: EventItem) {
   return "";
 }
 
+function buildInstagramFallback(event: EventItem) {
+  const query = encodeURIComponent(
+    [event.title, event.venueName, event.artistNames].filter(Boolean).join(" ")
+  );
+  return `https://www.instagram.com/explore/search/keyword/?q=${query || "concert"}`;
+}
+
+function getInstagramLink(event: EventItem) {
+  return extractInstagramUrl(event) || buildInstagramFallback(event);
+}
+
 function extractInfoLink(event: EventItem) {
   const source = extractExternalUrl(event.sourceUrl);
   const instagram = extractInstagramUrl(event);
@@ -179,7 +190,7 @@ export default function EventDetailPage() {
     fetchEvent();
   }, [eventId]);
 
-  const instagramUrl = useMemo(() => (eventData ? extractInstagramUrl(eventData) : ""), [eventData]);
+  const instagramUrl = useMemo(() => (eventData ? getInstagramLink(eventData) : ""), [eventData]);
   const infoUrl = useMemo(() => (eventData ? extractInfoLink(eventData) : ""), [eventData]);
   const priceLines = useMemo(() => formatPriceLines(eventData?.price), [eventData?.price]);
 
@@ -225,13 +236,11 @@ export default function EventDetailPage() {
           </div>
 
           <div className="mt-8 flex flex-wrap gap-2">
-            {instagramUrl ? (
-              <a href={instagramUrl} target="_blank" rel="noreferrer" className="primary-btn">
-                Instagram ↗
-              </a>
-            ) : null}
+            <a href={instagramUrl} target="_blank" rel="noreferrer" className="primary-btn">
+              Instagram ↗
+            </a>
 
-            {infoUrl && infoUrl !== instagramUrl ? (
+            {infoUrl ? (
               <a href={infoUrl} target="_blank" rel="noreferrer" className="secondary-btn">
                 예매 / 안내 링크 ↗
               </a>

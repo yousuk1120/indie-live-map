@@ -37,6 +37,8 @@ type VenueBucket = {
   events: EventItem[];
 };
 
+type ViewMode = "list" | "map" | "calendar";
+
 const DEFAULT_CENTER = { lat: 37.5559, lng: 126.9234 };
 
 function toText(value: unknown): string {
@@ -122,6 +124,17 @@ function extractInstagramUrl(event: EventItem) {
   return "";
 }
 
+function buildInstagramFallback(event: EventItem) {
+  const query = encodeURIComponent(
+    [event.title, event.venueName, event.artistNames].filter(Boolean).join(" ")
+  );
+  return `https://www.instagram.com/explore/search/keyword/?q=${query || "concert"}`;
+}
+
+function getInstagramLink(event: EventItem) {
+  return extractInstagramUrl(event) || buildInstagramFallback(event);
+}
+
 function extractInfoLink(event: EventItem) {
   const source = extractExternalUrl(event.sourceUrl);
   const instagram = extractInstagramUrl(event);
@@ -151,10 +164,7 @@ function formatPriceLines(value?: string) {
     .replace(/\s{2,}/g, " ")
     .trim();
 
-  const parts = normalized
-    .split("\n")
-    .map((part) => normalizeMoneyInText(part.trim()))
-    .filter(Boolean);
+  const parts = normalized.split("\n").map((part) => normalizeMoneyInText(part.trim())).filter(Boolean);
 
   return Array.from(
     new Set(
@@ -163,7 +173,6 @@ function formatPriceLines(value?: string) {
 
         const labelMatch = part.match(/(예매|현매|예판|당일|door)/i);
         const label = labelMatch ? labelMatch[1].replace(/^door$/i, "현매") : "";
-
         const amounts = Array.from(part.matchAll(/\d[\d,]*원/g)).map((m) => m[0]);
         const amount = amounts.length ? amounts[amounts.length - 1] : "";
 
@@ -191,24 +200,26 @@ function normalizeEvent(id: string, raw: Record<string, unknown>): EventItem {
 
 function venueSearchCandidates(venueName: string) {
   const value = toText(venueName);
-  return Array.from(
-    new Set([value, `${value} 공연장`, `${value} 라이브클럽`, `${value} 서울`, `${value} 홍대`].filter(Boolean))
-  );
+  return Array.from(new Set([value, `${value} 공연장`, `${value} 라이브클럽`, `${value} 서울`, `${value} 홍대`].filter(Boolean)));
 }
 
 export default function Home() {
   const router = useRouter();
+
   const [events, setEvents] = useState<EventItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [viewMode, setViewMode] = useState<"list" | "map" | "calendar">("list");
+  const [viewMode, setViewMode] = useState<ViewMode>("list");
+
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState("");
+
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState("");
   const [origin, setOrigin] = useState("");
   const [activeVenue, setActiveVenue] = useState("");
+
   const [savedEvents, setSavedEvents] = useState<Set<string>>(new Set());
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
@@ -254,6 +265,7 @@ export default function Home() {
   const filteredEvents = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return events;
+
     return events.filter((event) =>
       [event.title, event.venueName, event.artistNames]
         .filter(Boolean)
@@ -326,7 +338,7 @@ export default function Home() {
   }, [selectedDate, sortedEvents]);
 
   useEffect(() => {
-    if (!mapReady || viewMode !== "map") return;
+    if (!mapReady) return;
 
     const timer = window.setTimeout(() => {
       if (!window.kakao?.maps) {
@@ -335,7 +347,7 @@ export default function Home() {
     }, 1200);
 
     return () => window.clearTimeout(timer);
-  }, [mapReady, origin, viewMode]);
+  }, [mapReady, origin]);
 
   useEffect(() => {
     if (viewMode !== "map") return;
@@ -420,7 +432,7 @@ export default function Home() {
       cancelled = true;
       markersRef.current.forEach((marker) => marker.setMap(null));
     };
-  }, [mapReady, venueBuckets, origin, viewMode]);
+  }, [viewMode, mapReady, venueBuckets, origin]);
 
   return (
     <main className="min-h-screen bg-[var(--bg)] text-[var(--text)]">
@@ -438,16 +450,24 @@ export default function Home() {
       <div className="mx-auto max-w-6xl px-4 pb-16 pt-8 md:px-8 md:pt-10">
         <header className="mb-8 flex items-end justify-between gap-4 border-b border-[var(--line)] pb-6">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">Seoul Indie Live</p>
-            <h1 className="mt-2 text-4xl font-semibold tracking-[-0.04em] text-white md:text-6xl">Concert Schedule</h1>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">
+              Seoul Indie Live
+            </p>
+            <h1 className="mt-2 text-4xl font-semibold tracking-[-0.04em] text-white md:text-6xl">
+              Concert Schedule
+            </h1>
           </div>
-          <Link href="/admin" className="inline-flex h-11 items-center rounded-full border border-[var(--line)] px-5 text-sm font-medium text-[var(--text)] transition hover:border-[var(--accent)] hover:text-white">
+
+          <Link
+            href="/admin"
+            className="inline-flex h-11 items-center rounded-full border border-[var(--line)] px-5 text-sm font-medium text-[var(--text)] transition hover:border-[var(--accent)] hover:text-white"
+          >
             Admin
           </Link>
         </header>
 
-        <section className="panel mb-6 p-4 md:p-5">
-          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_320px]">
+        <section className="panel mb-8 p-4 md:p-5">
+          <div className="grid gap-4 md:grid-cols-[1fr_auto]">
             <input
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
@@ -455,16 +475,10 @@ export default function Home() {
               className="h-14 w-full rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] px-4 text-base text-white outline-none transition focus:border-[var(--accent)]"
             />
 
-            <div className="grid grid-cols-3 gap-2 rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] p-1.5">
-              <ModeButton active={viewMode === "list"} onClick={() => setViewMode("list")}>
-                목록
-              </ModeButton>
-              <ModeButton active={viewMode === "map"} onClick={() => setViewMode("map")}>
-                지도
-              </ModeButton>
-              <ModeButton active={viewMode === "calendar"} onClick={() => setViewMode("calendar")}>
-                달력
-              </ModeButton>
+            <div className="flex items-center gap-2 rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] p-1">
+              <ViewTab active={viewMode === "list"} onClick={() => setViewMode("list")}>목록</ViewTab>
+              <ViewTab active={viewMode === "map"} onClick={() => setViewMode("map")}>지도</ViewTab>
+              <ViewTab active={viewMode === "calendar"} onClick={() => setViewMode("calendar")}>달력</ViewTab>
             </div>
           </div>
         </section>
@@ -473,165 +487,181 @@ export default function Home() {
           <div className="space-y-4">
             <div className="panel h-32 animate-pulse" />
             <div className="panel h-80 animate-pulse" />
+            <div className="panel h-80 animate-pulse" />
           </div>
         ) : loadError ? (
           <div className="panel p-6 text-sm text-rose-300">{loadError}</div>
-        ) : viewMode === "list" ? (
-          <section className="panel p-4 md:p-5">
-            <div className="mb-5 flex items-center justify-between border-b border-[var(--line)] pb-4">
-              <h2 className="text-lg font-semibold text-white">Upcoming</h2>
-              <span className="text-sm text-[var(--muted)]">{sortedEvents.length} items</span>
-            </div>
-
-            <div className="divide-y divide-[var(--line)]">
-              {sortedEvents.length ? (
-                sortedEvents.map((event) => (
-                  <EventListRow
-                    key={event.id}
-                    event={event}
-                    onOpen={() => router.push(`/events/${event.id}`)}
-                    isSaved={savedEvents.has(event.id)}
-                    onToggleSave={() => toggleSave(event.id)}
-                  />
-                ))
-              ) : (
-                <div className="py-10 text-sm text-[var(--muted)]">검색 결과가 없습니다.</div>
-              )}
-            </div>
-          </section>
-        ) : viewMode === "map" ? (
-          <section className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
-            <aside className="panel p-4 md:p-5">
-              <div className="mb-4 border-b border-[var(--line)] pb-4">
-                <h2 className="text-lg font-semibold text-white">Venue Map</h2>
-                <p className="mt-1 text-sm text-[var(--muted)]">공연장별로 바로 보기</p>
-              </div>
-
-              <div className="space-y-3">
-                {venueBuckets.length ? (
-                  venueBuckets.map((bucket) => (
-                    <button
-                      key={bucket.venueName}
-                      type="button"
-                      onClick={() => setActiveVenue(bucket.venueName)}
-                      className={`w-full rounded-2xl border px-4 py-4 text-left transition ${bucket.venueName === activeVenue
-                          ? "border-[var(--accent)] bg-[var(--accent-soft)]"
-                          : "border-[var(--line)] bg-[var(--panel-2)] hover:border-[var(--accent)]/60"
-                        }`}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="font-medium text-white">{bucket.venueName}</span>
-                        <span className="text-sm text-[var(--muted)]">{bucket.events.length}</span>
-                      </div>
-                    </button>
-                  ))
-                ) : (
-                  <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] px-4 py-5 text-sm text-[var(--muted)]">
-                    표시할 공연장이 없습니다.
-                  </div>
-                )}
-              </div>
-
-              {activeVenueEvents.length ? (
-                <div className="mt-5 space-y-3 border-t border-[var(--line)] pt-5">
-                  {activeVenueEvents.map((event) => (
-                    <ScheduleRow
-                      key={event.id}
-                      event={event}
-                      onOpen={() => router.push(`/events/${event.id}`)}
-                      isSaved={savedEvents.has(event.id)}
-                      onToggleSave={() => toggleSave(event.id)}
-                    />
-                  ))}
-                </div>
-              ) : null}
-            </aside>
-
-            <div className="panel overflow-hidden p-4 md:p-5">
-              <div className="mb-4 border-b border-[var(--line)] pb-4">
-                <h2 className="text-lg font-semibold text-white">Map</h2>
-                {mapError ? <p className="mt-1 text-sm leading-6 text-[var(--muted)]">{mapError}</p> : null}
-              </div>
-
-              <div className="overflow-hidden rounded-3xl border border-[var(--line)] bg-[#121418]">
-                <div ref={mapContainerRef} className="h-[440px] w-full" />
-              </div>
-            </div>
-          </section>
         ) : (
-          <section className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-            <div className="panel p-4 md:p-5">
-              <div className="mb-5 flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-white">Calendar</h2>
-                <div className="flex items-center gap-2">
-                  <button type="button" onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--line)] text-sm text-[var(--text)] transition hover:border-[var(--accent)]">
-                    ←
-                  </button>
-                  <span className="min-w-[120px] text-center text-sm font-medium text-white">
-                    {currentMonth.getFullYear()}.{String(currentMonth.getMonth() + 1).padStart(2, "0")}
-                  </span>
-                  <button type="button" onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--line)] text-sm text-[var(--text)] transition hover:border-[var(--accent)]">
-                    →
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-7 gap-2 text-center text-xs font-medium text-[var(--muted)] md:gap-3">
-                {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
-                  <div key={day} className="pb-2">{day}</div>
-                ))}
-              </div>
-
-              <div className="grid grid-cols-7 gap-2 md:gap-3">
-                {calendarCells.map((cell, index) =>
-                  cell ? (
-                    <button key={cell.key} type="button" onClick={() => setSelectedDate(cell.key)} className={`calendar-cell ${cell.key === selectedDate ? "calendar-cell-active" : ""}`}>
-                      <span className="text-sm font-semibold text-white md:text-base">{cell.day}</span>
-                      {cell.events.length ? (
-                        <span className="mt-2 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-[var(--accent-soft)] px-1.5 text-[11px] font-semibold text-[var(--accent)]">
-                          {cell.events.length}
-                        </span>
-                      ) : null}
-                    </button>
+          <>
+            {viewMode === "list" && (
+              <section className="panel p-4 md:p-5">
+                <div className="divide-y divide-[var(--line)]">
+                  {sortedEvents.length ? (
+                    sortedEvents.map((event) => (
+                      <EventListRow
+                        key={event.id}
+                        event={event}
+                        onOpen={() => router.push(`/events/${event.id}`)}
+                        isSaved={savedEvents.has(event.id)}
+                        onToggleSave={() => toggleSave(event.id)}
+                      />
+                    ))
                   ) : (
-                    <div key={`blank-${index}`} className="calendar-cell-empty" />
-                  )
-                )}
-              </div>
-            </div>
+                    <div className="py-10 text-sm text-[var(--muted)]">검색 결과가 없습니다.</div>
+                  )}
+                </div>
+              </section>
+            )}
 
-            <aside className="panel p-4 md:p-5">
-              <div className="border-b border-[var(--line)] pb-4">
-                <h2 className="text-lg font-semibold text-white">Selected Day</h2>
-                <p className="mt-1 text-sm text-[var(--muted)]">{selectedDate || "이 달에 일정이 없습니다."}</p>
-              </div>
-
-              <div className="mt-4 space-y-3">
-                {selectedDateEvents.length ? (
-                  selectedDateEvents.map((event) => (
-                    <ScheduleRow
-                      key={event.id}
-                      event={event}
-                      onOpen={() => router.push(`/events/${event.id}`)}
-                      isSaved={savedEvents.has(event.id)}
-                      onToggleSave={() => toggleSave(event.id)}
-                    />
-                  ))
-                ) : (
-                  <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] px-4 py-5 text-sm text-[var(--muted)]">
-                    선택한 날짜에 공연이 없습니다.
+            {viewMode === "map" && (
+              <section className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
+                <aside className="panel p-4 md:p-5">
+                  <div className="mb-4 border-b border-[var(--line)] pb-4">
+                    <h2 className="text-lg font-semibold text-white">공연 지도</h2>
                   </div>
-                )}
-              </div>
-            </aside>
-          </section>
+
+                  <div className="space-y-3">
+                    {venueBuckets.length ? (
+                      venueBuckets.map((bucket) => (
+                        <button
+                          key={bucket.venueName}
+                          type="button"
+                          onClick={() => setActiveVenue(bucket.venueName)}
+                          className={`w-full rounded-2xl border px-4 py-4 text-left transition ${bucket.venueName === activeVenue
+                              ? "border-[var(--accent)] bg-[var(--accent-soft)]"
+                              : "border-[var(--line)] bg-[var(--panel-2)] hover:border-[var(--accent)]/60"
+                            }`}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="font-medium text-white">{bucket.venueName}</span>
+                            <span className="text-sm text-[var(--muted)]">{bucket.events.length}</span>
+                          </div>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] px-4 py-5 text-sm text-[var(--muted)]">
+                        표시할 공연장이 없습니다.
+                      </div>
+                    )}
+                  </div>
+
+                  {activeVenueEvents.length ? (
+                    <div className="mt-5 space-y-3 border-t border-[var(--line)] pt-5">
+                      {activeVenueEvents.map((event) => (
+                        <ScheduleRow
+                          key={event.id}
+                          event={event}
+                          onOpen={() => router.push(`/events/${event.id}`)}
+                          isSaved={savedEvents.has(event.id)}
+                          onToggleSave={() => toggleSave(event.id)}
+                        />
+                      ))}
+                    </div>
+                  ) : null}
+                </aside>
+
+                <div className="panel overflow-hidden p-4 md:p-5">
+                  <div className="mb-4 border-b border-[var(--line)] pb-4">
+                    <h2 className="text-lg font-semibold text-white">Map</h2>
+                    {mapError ? <p className="mt-1 text-sm leading-6 text-[var(--muted)]">{mapError}</p> : null}
+                  </div>
+
+                  <div className="overflow-hidden rounded-3xl border border-[var(--line)] bg-[#121418]">
+                    <div ref={mapContainerRef} className="h-[520px] w-full" />
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {viewMode === "calendar" && (
+              <section className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+                <div className="panel p-4 md:p-5">
+                  <div className="mb-5 flex items-center justify-between">
+                    <h2 className="text-lg font-semibold text-white">Calendar</h2>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))}
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--line)] text-sm text-[var(--text)] transition hover:border-[var(--accent)]"
+                      >
+                        ←
+                      </button>
+                      <span className="min-w-[120px] text-center text-sm font-medium text-white">
+                        {currentMonth.getFullYear()}.{String(currentMonth.getMonth() + 1).padStart(2, "0")}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))}
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--line)] text-sm text-[var(--text)] transition hover:border-[var(--accent)]"
+                      >
+                        →
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-7 gap-2 text-center text-xs font-medium text-[var(--muted)] md:gap-3">
+                    {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+                      <div key={day} className="pb-2">{day}</div>
+                    ))}
+                  </div>
+
+                  <div className="grid grid-cols-7 gap-2 md:gap-3">
+                    {calendarCells.map((cell, index) =>
+                      cell ? (
+                        <button
+                          key={cell.key}
+                          type="button"
+                          onClick={() => setSelectedDate(cell.key)}
+                          className={`calendar-cell ${cell.key === selectedDate ? "calendar-cell-active" : ""}`}
+                        >
+                          <span className="text-sm font-semibold text-white md:text-base">{cell.day}</span>
+                          {cell.events.length ? (
+                            <span className="mt-2 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-[var(--accent-soft)] px-1.5 text-[11px] font-semibold text-[var(--accent)]">
+                              {cell.events.length}
+                            </span>
+                          ) : null}
+                        </button>
+                      ) : (
+                        <div key={`blank-${index}`} className="calendar-cell-empty" />
+                      )
+                    )}
+                  </div>
+                </div>
+
+                <aside className="panel p-4 md:p-5">
+                  <div className="border-b border-[var(--line)] pb-4">
+                    <h2 className="text-lg font-semibold text-white">Selected Day</h2>
+                    <p className="mt-1 text-sm text-[var(--muted)]">{selectedDate || "이 달에 일정이 없습니다."}</p>
+                  </div>
+
+                  <div className="mt-4 space-y-3">
+                    {selectedDateEvents.length ? (
+                      selectedDateEvents.map((event) => (
+                        <ScheduleRow
+                          key={event.id}
+                          event={event}
+                          onOpen={() => router.push(`/events/${event.id}`)}
+                          isSaved={savedEvents.has(event.id)}
+                          onToggleSave={() => toggleSave(event.id)}
+                        />
+                      ))
+                    ) : (
+                      <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] px-4 py-5 text-sm text-[var(--muted)]">
+                        선택한 날짜에 공연이 없습니다.
+                      </div>
+                    )}
+                  </div>
+                </aside>
+              </section>
+            )}
+          </>
         )}
       </div>
     </main>
   );
 }
 
-function ModeButton({
+function ViewTab({
   active,
   onClick,
   children,
@@ -644,7 +674,9 @@ function ModeButton({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-[18px] px-4 py-3 text-sm font-semibold transition ${active ? "bg-white text-black" : "text-[var(--muted)] hover:text-white"
+      className={`inline-flex h-12 items-center rounded-2xl px-6 text-base font-medium transition ${active
+          ? "bg-white text-slate-950"
+          : "text-[var(--muted)] hover:text-white"
         }`}
     >
       {children}
@@ -664,16 +696,16 @@ function EventListRow({
   onToggleSave: () => void;
 }) {
   const priceLines = formatPriceLines(event.price);
-  const instagramUrl = extractInstagramUrl(event);
-  const fallbackUrl = extractInfoLink(event);
-  const externalUrl = instagramUrl || fallbackUrl;
+  const instagramUrl = getInstagramLink(event);
 
   return (
     <article className="py-6 first:pt-0 last:pb-0">
       <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
         <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
           <p className="text-sm font-medium text-[var(--muted)]">{formatSchedule(event)}</p>
-          <h3 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-white">{event.title || "제목 없는 공연"}</h3>
+          <h3 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-white">
+            {event.title || "제목 없는 공연"}
+          </h3>
 
           <div className="mt-5 grid gap-5 md:grid-cols-[220px_minmax(0,1fr)_180px]">
             <div className="min-w-0">
@@ -713,11 +745,15 @@ function EventListRow({
             {isSaved ? "★ 저장됨" : "☆ 저장"}
           </button>
 
-          {externalUrl ? (
-            <a href={externalUrl} target="_blank" rel="noreferrer" className="secondary-btn" onClick={(e) => e.stopPropagation()}>
-              {instagramUrl ? "Instagram ↗" : "Link ↗"}
-            </a>
-          ) : null}
+          <a
+            href={instagramUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="secondary-btn"
+            onClick={(e) => e.stopPropagation()}
+          >
+            Instagram ↗
+          </a>
         </div>
       </div>
     </article>
@@ -736,25 +772,28 @@ function ScheduleRow({
   onToggleSave: () => void;
 }) {
   const priceLines = formatPriceLines(event.price);
-  const instagramUrl = extractInstagramUrl(event);
-  const fallbackUrl = extractInfoLink(event);
-  const externalUrl = instagramUrl || fallbackUrl;
+  const instagramUrl = getInstagramLink(event);
 
   return (
     <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] p-4">
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
           <p className="text-sm font-medium text-[var(--muted)]">{formatSchedule(event)}</p>
           <p className="mt-1 text-lg font-semibold text-white">{event.title || "제목 없는 공연"}</p>
-          <p className="mt-2 text-sm text-[var(--muted)]">{event.venueName || "장소 미정"}</p>
-          <p className="mt-2 break-words text-sm leading-6 text-zinc-200">{event.artistNames || "출연 정보 없음"}</p>
-          {priceLines.length ? (
-            <div className="mt-3 space-y-1">
-              {priceLines.map((line) => (
-                <p key={`${event.id}-${line}`} className="text-sm font-medium text-white">{line}</p>
-              ))}
+
+          <div className="mt-3 grid gap-3 md:grid-cols-[180px_minmax(0,1fr)_220px]">
+            <p className="min-w-0 text-sm text-[var(--muted)]">{event.venueName || "장소 미정"}</p>
+            <p className="min-w-0 break-words text-sm leading-6 text-zinc-200">{event.artistNames || "출연 정보 없음"}</p>
+            <div className="space-y-1 md:text-right">
+              {priceLines.length ? (
+                priceLines.map((line) => (
+                  <p key={`${event.id}-${line}`} className="text-sm font-medium text-white">{line}</p>
+                ))
+              ) : (
+                <p className="text-sm text-[var(--muted)]">티켓 정보 없음</p>
+              )}
             </div>
-          ) : null}
+          </div>
         </button>
 
         <div className="flex gap-2">
@@ -769,11 +808,15 @@ function ScheduleRow({
             {isSaved ? "★" : "☆"}
           </button>
 
-          {externalUrl ? (
-            <a href={externalUrl} target="_blank" rel="noreferrer" className="secondary-btn" onClick={(e) => e.stopPropagation()}>
-              {instagramUrl ? "Instagram" : "Link"}
-            </a>
-          ) : null}
+          <a
+            href={instagramUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="secondary-btn"
+            onClick={(e) => e.stopPropagation()}
+          >
+            Instagram
+          </a>
         </div>
       </div>
     </div>
