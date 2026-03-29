@@ -20,6 +20,55 @@ type EventItem = {
   price?: string;
 };
 
+function adminToText(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return value.map(adminToText).filter(Boolean).join(", ");
+  if (typeof value === "object") return Object.values(value as Record<string, unknown>).map(adminToText).filter(Boolean).join(", ");
+  return "";
+}
+
+function adminNormalizeDate(value?: string) {
+  const raw = adminToText(value);
+  if (!raw) return "";
+  const match = raw.match(/(\d{2,4})[./-](\d{1,2})[./-](\d{1,2})/);
+  if (!match) return "";
+  const [, y, m, d] = match;
+  const year = y.length === 2 ? `20${y}` : y;
+  return `${year}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+}
+
+function adminEventTimestamp(item: EventItem) {
+  const date = adminNormalizeDate(item.date);
+  if (!date) return Number.POSITIVE_INFINITY;
+  const time = adminToText(item.time) || "23:59";
+  const parsed = new Date(`${date}T${time}`);
+  return Number.isNaN(parsed.getTime()) ? Number.POSITIVE_INFINITY : parsed.getTime();
+}
+
+function isKoreanAdminEvent(item: EventItem) {
+  const text = [item.title, item.venueName, item.artistNames, item.sourceUrl, item.instagramUrl]
+    .map(adminToText)
+    .join(" ");
+
+  const japanPattern =
+    /도쿄|오사카|교토|시부야|신주쿠|시모키타|나고야|후쿠오카|삿포로|Tokyo|Osaka|Kyoto|Shibuya|Shinjuku|Shimokitazawa|Nagoya|Fukuoka|Sapporo|Japan|日本|東京|大阪|京都|渋谷|新宿|下北沢|名古屋|福岡|札幌/i;
+
+  return !japanPattern.test(text);
+}
+
+function isExpiredAdminEvent(item: EventItem) {
+  const date = adminNormalizeDate(item.date);
+  if (!date) return false;
+
+  const eventEnd = new Date(`${date}T23:59:59`).getTime();
+  const endOfToday = new Date();
+  endOfToday.setHours(23, 59, 59, 999);
+
+  return eventEnd <= endOfToday.getTime();
+}
+
 type SourceAccount = {
   id: string;
   accountName: string;
@@ -28,6 +77,7 @@ type SourceAccount = {
 };
 
 type CandidateEvent = {
+
   id: string;
   rawPostId?: string;
   instaLink: string;
@@ -138,9 +188,29 @@ function EventsTab() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
+    const cleanupExpired = async () => {
+      const snapshot = await getDocs(query(collection(db, "events")));
+      for (const docSnap of snapshot.docs) {
+        const item = { id: docSnap.id, ...docSnap.data() } as EventItem;
+        if (isExpiredAdminEvent(item) || !isKoreanAdminEvent(item)) {
+          await deleteDoc(doc(db, "events", docSnap.id));
+        }
+      }
+    };
+
+    cleanupExpired();
+  }, []);
+
+  useEffect(() => {
     const q = query(collection(db, "events"));
     return onSnapshot(q, (snapshot) => {
-      setEvents(snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as EventItem)));
+      const items = snapshot.docs
+        .map((d) => ({ id: d.id, ...d.data() } as EventItem))
+        .filter((item) => !isExpiredAdminEvent(item))
+        .filter((item) => isKoreanAdminEvent(item))
+        .sort((a, b) => adminEventTimestamp(a) - adminEventTimestamp(b));
+
+      setEvents(items);
     });
   }, []);
 
@@ -172,17 +242,34 @@ function EventsTab() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
+
     setIsSubmitting(true);
     try {
       if (editingId) {
         await updateDoc(doc(db, "events", editingId), {
-          title, date, time, venueName, artistNames, sourceUrl, instagramUrl, price,
+          title,
+          date,
+          time,
+          venueName,
+          artistNames,
+          sourceUrl,
+          instagramUrl,
+          price,
         });
       } else {
         await addDoc(collection(db, "events"), {
-          title, date, time, venueName, artistNames, sourceUrl, instagramUrl, price, createdAt: serverTimestamp(),
+          title,
+          date,
+          time,
+          venueName,
+          artistNames,
+          sourceUrl,
+          instagramUrl,
+          price,
+          createdAt: serverTimestamp(),
         });
       }
+
       handleCancelEdit();
     } catch (error) {
       console.error(error);
@@ -206,17 +293,25 @@ function EventsTab() {
           ) : (
             <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-blue-500/40 to-transparent"></div>
           )}
+
           <h2 className="text-lg font-semibold mb-8 text-white flex items-center gap-3">
             {editingId ? (
-              <><span className="w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.6)]"></span>수정하기</>
+              <>
+                <span className="w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.6)]"></span>
+                수정하기
+              </>
             ) : (
-              <><span className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]"></span>새 공연 수동 등록</>
+              <>
+                <span className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]"></span>
+                새 공연 수동 등록
+              </>
             )}
           </h2>
+
           <form onSubmit={handleSubmit} className="space-y-4">
             <Input label="공연 제목" value={title} onChange={setTitle} required />
             <div className="grid grid-cols-2 gap-4">
-              <Input label="날짜" placeholder="YY-MM-DD" value={date} onChange={setDate} />
+              <Input label="날짜" placeholder="YYYY-MM-DD" value={date} onChange={setDate} />
               <Input label="시간" placeholder="19:00" value={time} onChange={setTime} />
             </div>
             <Input label="장소명" value={venueName} onChange={setVenueName} />
@@ -228,11 +323,23 @@ function EventsTab() {
             <Input label="인스타그램 링크" type="text" value={instagramUrl} onChange={setInstagramUrl} />
 
             <div className="flex gap-4 pt-2">
-              <button disabled={isSubmitting} className={`flex-1 py-4 rounded-2xl font-semibold transition-all duration-300 ${editingId ? "bg-amber-500 text-black hover:bg-amber-400" : "bg-white text-black hover:bg-zinc-200"} disabled:opacity-50`}>
-                {editingId ? "변경사항 발행" : "추가하기"}
+              <button
+                disabled={isSubmitting}
+                className={`flex-1 py-4 rounded-2xl font-semibold transition-all duration-300 ${editingId ? "bg-amber-500 text-black hover:bg-amber-400" : "bg-white text-black hover:bg-zinc-200"
+                  } disabled:opacity-50`}
+              >
+                {editingId ? "변경사항 저장" : "추가하기"}
               </button>
+
               {editingId && (
-                <button type="button" onClick={handleCancelEdit} disabled={isSubmitting} className="px-6 bg-white/5 border border-white/5 text-zinc-400 hover:text-white rounded-2xl font-medium transition-all">취소</button>
+                <button
+                  type="button"
+                  onClick={handleCancelEdit}
+                  disabled={isSubmitting}
+                  className="px-6 bg-white/5 border border-white/5 text-zinc-400 hover:text-white rounded-2xl font-medium transition-all"
+                >
+                  취소
+                </button>
               )}
             </div>
           </form>
@@ -242,31 +349,76 @@ function EventsTab() {
       <div className="lg:col-span-8 flex flex-col gap-5">
         <div className="flex items-center justify-between px-2">
           <h2 className="text-lg font-semibold text-white">등록된 항목 (events)</h2>
-          <span className="text-xs font-semibold bg-white/10 text-zinc-300 px-3 py-1.5 rounded-full">{events.length}</span>
+          <span className="text-xs font-semibold bg-white/10 text-zinc-300 px-3 py-1.5 rounded-full">
+            {events.length}
+          </span>
         </div>
+
         {events.length === 0 ? (
           <div className="bg-[#121212] border border-white/5 rounded-[2rem] p-16 text-center flex flex-col items-center justify-center">
-            <p className="text-zinc-500 font-medium">아직 승인되거나 수동 등록된 공연이 없습니다.</p>
+            <p className="text-zinc-500 font-medium">표시할 공연이 없습니다.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {events.map(ev => (
-              <div key={ev.id} className={`bg-[#121212] border ${editingId === ev.id ? 'border-amber-500/30' : 'border-white/5'} rounded-3xl p-6 transition-all group flex flex-col`}>
+            {events.map((ev) => (
+              <div
+                key={ev.id}
+                className={`bg-[#121212] border ${editingId === ev.id ? "border-amber-500/30" : "border-white/5"
+                  } rounded-3xl p-6 transition-all group flex flex-col`}
+              >
                 <div className="flex-1">
                   <h3 className="font-semibold text-lg text-white mb-5 line-clamp-2 leading-snug">{ev.title}</h3>
                   <div className="space-y-3 text-sm text-zinc-400">
-                    {ev.date && <p className="flex gap-4"><span className="text-zinc-600 font-medium shrink-0">일시</span> <span className="text-zinc-200">{ev.date} {ev.time}</span></p>}
-                    {ev.venueName && <p className="flex gap-4"><span className="text-zinc-600 font-medium shrink-0">장소</span> <span className="text-zinc-200">{ev.venueName}</span></p>}
-                    {ev.artistNames && <p className="flex gap-4"><span className="text-zinc-600 font-medium shrink-0">출연</span> <span className="text-zinc-200 line-clamp-1">{ev.artistNames}</span></p>}
-                    {ev.price && <p className="flex gap-4"><span className="text-zinc-600 font-medium shrink-0">가격</span> <span className="text-pink-300 font-bold">{ev.price}</span></p>}
-                    {ev.sourceUrl && (
-                      <a href={ev.sourceUrl} target="_blank" rel="noreferrer" className="inline-block mt-4 text-xs font-medium text-blue-400 hover:text-blue-300 underline underline-offset-4 decoration-blue-500/30">원본 링크로 이동</a>
+                    {ev.date && (
+                      <p className="flex gap-4">
+                        <span className="text-zinc-600 font-medium shrink-0">일시</span>
+                        <span className="text-zinc-200">{ev.date} {ev.time}</span>
+                      </p>
+                    )}
+                    {ev.venueName && (
+                      <p className="flex gap-4">
+                        <span className="text-zinc-600 font-medium shrink-0">장소</span>
+                        <span className="text-zinc-200">{ev.venueName}</span>
+                      </p>
+                    )}
+                    {ev.artistNames && (
+                      <p className="flex gap-4">
+                        <span className="text-zinc-600 font-medium shrink-0">출연</span>
+                        <span className="text-zinc-200 line-clamp-2">{ev.artistNames}</span>
+                      </p>
+                    )}
+                    {ev.price && (
+                      <p className="flex gap-4">
+                        <span className="text-zinc-600 font-medium shrink-0">가격</span>
+                        <span className="text-pink-300 font-bold">{ev.price}</span>
+                      </p>
+                    )}
+                    {ev.instagramUrl && (
+                      <a
+                        href={ev.instagramUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-block mt-4 text-xs font-medium text-blue-400 hover:text-blue-300 underline underline-offset-4 decoration-blue-500/30"
+                      >
+                        인스타그램 링크 열기
+                      </a>
                     )}
                   </div>
                 </div>
+
                 <div className="mt-8 flex gap-2">
-                  <button onClick={() => handleEditClick(ev)} className="flex-1 bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white py-3 rounded-2xl text-xs font-semibold transition">수정</button>
-                  <button onClick={() => handleDelete(ev.id)} className="flex-1 bg-red-500/5 hover:bg-red-500/10 text-red-400 hover:text-red-300 py-3 rounded-2xl text-xs font-semibold transition">삭제</button>
+                  <button
+                    onClick={() => handleEditClick(ev)}
+                    className="flex-1 bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white py-3 rounded-2xl text-xs font-semibold transition"
+                  >
+                    수정
+                  </button>
+                  <button
+                    onClick={() => handleDelete(ev.id)}
+                    className="flex-1 bg-red-500/5 hover:bg-red-500/10 text-red-400 hover:text-red-300 py-3 rounded-2xl text-xs font-semibold transition"
+                  >
+                    삭제
+                  </button>
                 </div>
               </div>
             ))}

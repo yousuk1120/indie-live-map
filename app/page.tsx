@@ -70,6 +70,34 @@ function eventTimestamp(event: EventItem) {
   return Number.isNaN(parsed.getTime()) ? Number.POSITIVE_INFINITY : parsed.getTime();
 }
 
+function isKoreanEvent(event: EventItem) {
+  const text = [
+    event.title,
+    event.venueName,
+    event.artistNames,
+    event.sourceUrl,
+    event.instagramUrl,
+  ]
+    .map(toText)
+    .join(" ");
+
+  const japanPattern =
+    /도쿄|오사카|교토|시부야|신주쿠|시모키타|나고야|후쿠오카|삿포로|Tokyo|Osaka|Kyoto|Shibuya|Shinjuku|Shimokitazawa|Nagoya|Fukuoka|Sapporo|Japan|日本|東京|大阪|京都|渋谷|新宿|下北沢|名古屋|福岡|札幌/i;
+
+  return !japanPattern.test(text);
+}
+
+function isFutureEvent(event: EventItem) {
+  const date = normalizeDate(event.date);
+  if (!date) return false;
+
+  const eventEnd = new Date(`${date}T23:59:59`).getTime();
+  const endOfToday = new Date();
+  endOfToday.setHours(23, 59, 59, 999);
+
+  return eventEnd > endOfToday.getTime();
+}
+
 function formatSchedule(event: EventItem) {
   const date = normalizeDate(event.date);
   if (!date) return "일정 미정";
@@ -100,9 +128,7 @@ function extractExternalUrl(value?: string) {
   if (handle) return `https://www.instagram.com/${handle[0].slice(1)}`;
 
   const looseUrl = raw.match(/(?:www\.)?[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?:\/[^\s)]*)?/);
-  if (looseUrl && !raw.includes(" ")) {
-    return `https://${looseUrl[0].replace(/^https?:\/\//i, "")}`;
-  }
+  if (looseUrl && !raw.includes(" ")) return `https://${looseUrl[0].replace(/^https?:\/\//i, "")}`;
 
   return "";
 }
@@ -133,13 +159,6 @@ function buildInstagramFallback(event: EventItem) {
 
 function getInstagramLink(event: EventItem) {
   return extractInstagramUrl(event) || buildInstagramFallback(event);
-}
-
-function extractInfoLink(event: EventItem) {
-  const source = extractExternalUrl(event.sourceUrl);
-  const instagram = extractInstagramUrl(event);
-  if (source && source !== instagram) return source;
-  return "";
 }
 
 function formatMoneyToken(token: string) {
@@ -262,27 +281,22 @@ export default function Home() {
     fetchEvents();
   }, []);
 
+  const koreanEvents = useMemo(() => events.filter(isKoreanEvent), [events]);
+
   const filteredEvents = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return events;
+    if (!q) return koreanEvents;
 
-    return events.filter((event) =>
+    return koreanEvents.filter((event) =>
       [event.title, event.venueName, event.artistNames]
         .filter(Boolean)
         .some((value) => value!.toLowerCase().includes(q))
     );
-  }, [events, searchQuery]);
+  }, [koreanEvents, searchQuery]);
 
   const sortedEvents = useMemo(() => {
-    const now = new Date();
-    now.setHours(0, 0, 0, 0);
-    const todayTimestamp = now.getTime();
-
     return [...filteredEvents]
-      .filter((event) => {
-        const ts = eventTimestamp(event);
-        return ts >= todayTimestamp || ts === Number.POSITIVE_INFINITY;
-      })
+      .filter(isFutureEvent)
       .sort((a, b) => eventTimestamp(a) - eventTimestamp(b));
   }, [filteredEvents]);
 
@@ -328,6 +342,7 @@ export default function Home() {
   useEffect(() => {
     const validKeys = calendarCells.filter(Boolean).map((cell) => cell!.key);
     if (selectedDate && validKeys.includes(selectedDate)) return;
+
     const firstWithEvents = calendarCells.find((cell) => cell && cell.events.length)?.key || "";
     setSelectedDate(firstWithEvents);
   }, [calendarCells, selectedDate]);
@@ -450,12 +465,8 @@ export default function Home() {
       <div className="mx-auto max-w-6xl px-4 pb-16 pt-8 md:px-8 md:pt-10">
         <header className="mb-8 flex items-end justify-between gap-4 border-b border-[var(--line)] pb-6">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">
-              Seoul Indie Live
-            </p>
-            <h1 className="mt-2 text-4xl font-semibold tracking-[-0.04em] text-white md:text-6xl">
-              Concert Schedule
-            </h1>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">SEOUL INDIE LIVE</p>
+            <h1 className="mt-2 text-4xl font-semibold tracking-[-0.04em] text-white md:text-6xl">Concert Schedule</h1>
           </div>
 
           <Link
@@ -518,9 +529,7 @@ export default function Home() {
                 <div className="order-1 panel overflow-hidden p-4 md:p-5 lg:order-2">
                   <div className="mb-4 border-b border-[var(--line)] pb-4">
                     <h2 className="text-lg font-semibold text-white">Map</h2>
-                    {mapError ? (
-                      <p className="mt-1 text-sm leading-6 text-[var(--muted)]">{mapError}</p>
-                    ) : null}
+                    {mapError ? <p className="mt-1 text-sm leading-6 text-[var(--muted)]">{mapError}</p> : null}
                   </div>
 
                   <div className="overflow-hidden rounded-3xl border border-[var(--line)] bg-[#121418]">
@@ -541,8 +550,8 @@ export default function Home() {
                           type="button"
                           onClick={() => setActiveVenue(bucket.venueName)}
                           className={`w-full rounded-2xl border px-4 py-4 text-left transition ${bucket.venueName === activeVenue
-                            ? "border-[var(--accent)] bg-[var(--accent-soft)]"
-                            : "border-[var(--line)] bg-[var(--panel-2)] hover:border-[var(--accent)]/60"
+                              ? "border-[var(--accent)] bg-[var(--accent-soft)]"
+                              : "border-[var(--line)] bg-[var(--panel-2)] hover:border-[var(--accent)]/60"
                             }`}
                         >
                           <div className="flex items-center justify-between gap-3">
@@ -576,8 +585,8 @@ export default function Home() {
             )}
 
             {viewMode === "calendar" && (
-              <section className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-                <div className="panel p-4 md:p-5">
+              <section className="grid gap-6 lg:grid-cols-[460px_minmax(0,1fr)]">
+                <div className="panel min-h-[720px] p-4 md:p-6">
                   <div className="mb-5 flex items-center justify-between">
                     <h2 className="text-lg font-semibold text-white">Calendar</h2>
                     <div className="flex items-center gap-2">
@@ -601,22 +610,23 @@ export default function Home() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-7 gap-2 text-center text-xs font-medium text-[var(--muted)] md:gap-3">
+                  <div className="grid grid-cols-7 gap-3 text-center text-xs font-medium text-[var(--muted)]">
                     {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
                       <div key={day} className="pb-2">{day}</div>
                     ))}
                   </div>
 
-                  <div className="grid grid-cols-7 gap-2 md:gap-3">
+                  <div className="grid grid-cols-7 gap-3">
                     {calendarCells.map((cell, index) =>
                       cell ? (
                         <button
                           key={cell.key}
                           type="button"
                           onClick={() => setSelectedDate(cell.key)}
-                          className={`calendar-cell ${cell.key === selectedDate ? "calendar-cell-active" : ""}`}
+                          className={`h-[96px] rounded-[24px] border border-[var(--line)] bg-[var(--panel-2)] px-3 py-3 text-left transition ${cell.key === selectedDate ? "border-[var(--accent)] bg-[var(--accent-soft)]" : ""
+                            }`}
                         >
-                          <span className="text-sm font-semibold text-white md:text-base">{cell.day}</span>
+                          <span className="text-base font-semibold text-white">{cell.day}</span>
                           {cell.events.length ? (
                             <span className="mt-2 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-[var(--accent-soft)] px-1.5 text-[11px] font-semibold text-[var(--accent)]">
                               {cell.events.length}
@@ -624,13 +634,13 @@ export default function Home() {
                           ) : null}
                         </button>
                       ) : (
-                        <div key={`blank-${index}`} className="calendar-cell-empty" />
+                        <div key={`blank-${index}`} className="h-[96px] rounded-[24px] border border-transparent" />
                       )
                     )}
                   </div>
                 </div>
 
-                <aside className="panel p-4 md:p-5">
+                <aside className="panel min-h-[720px] p-4 md:p-6">
                   <div className="border-b border-[var(--line)] pb-4">
                     <h2 className="text-lg font-semibold text-white">Selected Day</h2>
                     <p className="mt-1 text-sm text-[var(--muted)]">{selectedDate || "이 달에 일정이 없습니다."}</p>
@@ -676,9 +686,7 @@ function ViewTab({
     <button
       type="button"
       onClick={onClick}
-      className={`inline-flex h-12 items-center rounded-2xl px-6 text-base font-medium transition ${active
-        ? "bg-white text-slate-950"
-        : "text-[var(--muted)] hover:text-white"
+      className={`inline-flex h-12 items-center rounded-2xl px-6 text-base font-medium transition ${active ? "bg-white text-slate-950" : "text-[var(--muted)] hover:text-white"
         }`}
     >
       {children}
@@ -702,14 +710,12 @@ function EventListRow({
 
   return (
     <article className="py-6 first:pt-0 last:pb-0">
-      <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-        <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_220px] xl:items-start">
+        <button type="button" onClick={onOpen} className="min-w-0 text-left">
           <p className="text-sm font-medium text-[var(--muted)]">{formatSchedule(event)}</p>
-          <h3 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-white">
-            {event.title || "제목 없는 공연"}
-          </h3>
+          <h3 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-white">{event.title || "제목 없는 공연"}</h3>
 
-          <div className="mt-5 grid gap-5 md:grid-cols-[220px_minmax(0,1fr)_180px]">
+          <div className="mt-5 grid gap-5 md:grid-cols-[220px_minmax(0,1fr)_220px] md:items-start">
             <div className="min-w-0">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Venue</p>
               <p className="mt-2 break-words text-base text-zinc-200">{event.venueName || "장소 미정"}</p>
@@ -735,7 +741,7 @@ function EventListRow({
           </div>
         </button>
 
-        <div className="flex shrink-0 items-start gap-2 xl:pl-6">
+        <div className="flex shrink-0 items-start gap-2 xl:justify-end">
           <button
             type="button"
             onClick={(e) => {
@@ -774,12 +780,7 @@ function ScheduleRow({
   onToggleSave: () => void;
 }) {
   const priceLines = formatPriceLines(event.price);
-  const instagramUrl =
-    extractInstagramUrl(event) ||
-    extractInfoLink(event) ||
-    `https://www.instagram.com/explore/search/keyword/?q=${encodeURIComponent(
-      [event.title, event.venueName, event.artistNames].filter(Boolean).join(" ")
-    )}`;
+  const instagramUrl = getInstagramLink(event);
 
   return (
     <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] p-4">
@@ -790,9 +791,7 @@ function ScheduleRow({
         <div className="mt-4 grid gap-4 lg:grid-cols-[180px_minmax(260px,1fr)_180px] lg:items-start">
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Venue</p>
-            <p className="mt-2 break-words text-sm text-zinc-200">
-              {event.venueName || "장소 미정"}
-            </p>
+            <p className="mt-2 break-words text-sm text-zinc-200">{event.venueName || "장소 미정"}</p>
           </div>
 
           <div className="min-w-0">
@@ -807,9 +806,7 @@ function ScheduleRow({
             <div className="mt-2 space-y-1">
               {priceLines.length ? (
                 priceLines.map((line) => (
-                  <p key={`${event.id}-${line}`} className="text-sm font-medium text-white">
-                    {line}
-                  </p>
+                  <p key={`${event.id}-${line}`} className="text-sm font-medium text-white">{line}</p>
                 ))
               ) : (
                 <p className="text-sm text-[var(--muted)]">티켓 정보 없음</p>
