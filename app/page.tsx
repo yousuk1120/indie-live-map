@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import Script from "next/script";
 import { useRouter } from "next/navigation";
@@ -46,7 +46,9 @@ function toText(value: unknown): string {
   if (typeof value === "string") return value.trim();
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   if (Array.isArray(value)) return value.map(toText).filter(Boolean).join(", ");
-  if (typeof value === "object") return Object.values(value as Record<string, unknown>).map(toText).filter(Boolean).join(", ");
+  if (typeof value === "object") {
+    return Object.values(value as Record<string, unknown>).map(toText).filter(Boolean).join(", ");
+  }
   return "";
 }
 
@@ -70,6 +72,17 @@ function eventTimestamp(event: EventItem) {
   return Number.isNaN(parsed.getTime()) ? Number.POSITIVE_INFINITY : parsed.getTime();
 }
 
+function isFutureEvent(event: EventItem) {
+  const date = normalizeDate(event.date);
+  if (!date) return false;
+
+  const eventEnd = new Date(`${date}T23:59:59`).getTime();
+  const endOfToday = new Date();
+  endOfToday.setHours(23, 59, 59, 999);
+
+  return eventEnd > endOfToday.getTime();
+}
+
 function isKoreanEvent(event: EventItem) {
   const text = [
     event.title,
@@ -85,17 +98,6 @@ function isKoreanEvent(event: EventItem) {
     /도쿄|오사카|교토|시부야|신주쿠|시모키타|나고야|후쿠오카|삿포로|Tokyo|Osaka|Kyoto|Shibuya|Shinjuku|Shimokitazawa|Nagoya|Fukuoka|Sapporo|Japan|日本|東京|大阪|京都|渋谷|新宿|下北沢|名古屋|福岡|札幌/i;
 
   return !japanPattern.test(text);
-}
-
-function isFutureEvent(event: EventItem) {
-  const date = normalizeDate(event.date);
-  if (!date) return false;
-
-  const eventEnd = new Date(`${date}T23:59:59`).getTime();
-  const endOfToday = new Date();
-  endOfToday.setHours(23, 59, 59, 999);
-
-  return eventEnd > endOfToday.getTime();
 }
 
 function formatSchedule(event: EventItem) {
@@ -128,7 +130,9 @@ function extractExternalUrl(value?: string) {
   if (handle) return `https://www.instagram.com/${handle[0].slice(1)}`;
 
   const looseUrl = raw.match(/(?:www\.)?[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?:\/[^\s)]*)?/);
-  if (looseUrl && !raw.includes(" ")) return `https://${looseUrl[0].replace(/^https?:\/\//i, "")}`;
+  if (looseUrl && !raw.includes(" ")) {
+    return `https://${looseUrl[0].replace(/^https?:\/\//i, "")}`;
+  }
 
   return "";
 }
@@ -183,7 +187,10 @@ function formatPriceLines(value?: string) {
     .replace(/\s{2,}/g, " ")
     .trim();
 
-  const parts = normalized.split("\n").map((part) => normalizeMoneyInText(part.trim())).filter(Boolean);
+  const parts = normalized
+    .split("\n")
+    .map((part) => normalizeMoneyInText(part.trim()))
+    .filter(Boolean);
 
   return Array.from(
     new Set(
@@ -192,6 +199,7 @@ function formatPriceLines(value?: string) {
 
         const labelMatch = part.match(/(예매|현매|예판|당일|door)/i);
         const label = labelMatch ? labelMatch[1].replace(/^door$/i, "현매") : "";
+
         const amounts = Array.from(part.matchAll(/\d[\d,]*원/g)).map((m) => m[0]);
         const amount = amounts.length ? amounts[amounts.length - 1] : "";
 
@@ -219,7 +227,9 @@ function normalizeEvent(id: string, raw: Record<string, unknown>): EventItem {
 
 function venueSearchCandidates(venueName: string) {
   const value = toText(venueName);
-  return Array.from(new Set([value, `${value} 공연장`, `${value} 라이브클럽`, `${value} 서울`, `${value} 홍대`].filter(Boolean)));
+  return Array.from(
+    new Set([value, `${value} 공연장`, `${value} 라이브클럽`, `${value} 서울`, `${value} 홍대`].filter(Boolean))
+  );
 }
 
 export default function Home() {
@@ -311,7 +321,12 @@ export default function Home() {
   }, [sortedEvents]);
 
   useEffect(() => {
-    if (!activeVenue && venueBuckets[0]?.venueName) {
+    if (venueBuckets.length === 0) {
+      setActiveVenue("");
+      return;
+    }
+
+    if (!venueBuckets.some((bucket) => bucket.venueName === activeVenue)) {
       setActiveVenue(venueBuckets[0].venueName);
     }
   }, [activeVenue, venueBuckets]);
@@ -465,8 +480,12 @@ export default function Home() {
       <div className="mx-auto max-w-6xl px-4 pb-16 pt-8 md:px-8 md:pt-10">
         <header className="mb-8 flex items-end justify-between gap-4 border-b border-[var(--line)] pb-6">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">SEOUL INDIE LIVE</p>
-            <h1 className="mt-2 text-4xl font-semibold tracking-[-0.04em] text-white md:text-6xl">Concert Schedule</h1>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">
+              SEOUL INDIE LIVE
+            </p>
+            <h1 className="mt-2 text-4xl font-semibold tracking-[-0.04em] text-white md:text-6xl">
+              Concert Schedule
+            </h1>
           </div>
 
           <Link
@@ -550,8 +569,8 @@ export default function Home() {
                           type="button"
                           onClick={() => setActiveVenue(bucket.venueName)}
                           className={`w-full rounded-2xl border px-4 py-4 text-left transition ${bucket.venueName === activeVenue
-                            ? "border-[var(--accent)] bg-[var(--accent-soft)]"
-                            : "border-[var(--line)] bg-[var(--panel-2)] hover:border-[var(--accent)]/60"
+                              ? "border-[var(--accent)] bg-[var(--accent-soft)]"
+                              : "border-[var(--line)] bg-[var(--panel-2)] hover:border-[var(--accent)]/60"
                             }`}
                         >
                           <div className="flex items-center justify-between gap-3">
@@ -680,7 +699,7 @@ function ViewTab({
 }: {
   active: boolean;
   onClick: () => void;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <button
@@ -718,12 +737,16 @@ function EventListRow({
           <div className="mt-5 grid gap-5 md:grid-cols-[220px_minmax(0,1fr)_220px] md:items-start">
             <div className="min-w-0">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Venue</p>
-              <p className="mt-2 break-words text-base text-zinc-200">{event.venueName || "장소 미정"}</p>
+              <p className="mt-2 break-words [overflow-wrap:anywhere] text-base text-zinc-200">
+                {event.venueName || "장소 미정"}
+              </p>
             </div>
 
             <div className="min-w-0">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Artists</p>
-              <p className="mt-2 break-words text-base leading-7 text-zinc-200">{event.artistNames || "출연 정보 없음"}</p>
+              <p className="mt-2 break-words [overflow-wrap:anywhere] text-base leading-7 text-zinc-200">
+                {event.artistNames || "출연 정보 없음"}
+              </p>
             </div>
 
             <div className="min-w-0 md:text-right">
@@ -731,7 +754,9 @@ function EventListRow({
               <div className="mt-2 space-y-1">
                 {priceLines.length ? (
                   priceLines.map((line) => (
-                    <p key={`${event.id}-${line}`} className="text-base font-semibold text-white">{line}</p>
+                    <p key={`${event.id}-${line}`} className="break-words [overflow-wrap:anywhere] text-base font-semibold text-white">
+                      {line}
+                    </p>
                   ))
                 ) : (
                   <p className="text-base text-[var(--muted)]">티켓 정보 없음</p>
@@ -769,83 +794,82 @@ function EventListRow({
 }
 
 function ScheduleRow({
-  function ScheduleRow({
-    event,
-    onOpen,
-    isSaved,
-    onToggleSave,
-  }: {
-    event: EventItem;
-    onOpen: () => void;
-    isSaved: boolean;
-    onToggleSave: () => void;
-  }) {
-    const priceLines = formatPriceLines(event.price);
-    const instagramUrl = getInstagramLink(event);
+  event,
+  onOpen,
+  isSaved,
+  onToggleSave,
+}: {
+  event: EventItem;
+  onOpen: () => void;
+  isSaved: boolean;
+  onToggleSave: () => void;
+}) {
+  const priceLines = formatPriceLines(event.price);
+  const instagramUrl = getInstagramLink(event);
 
-    return (
-      <div className="overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] p-4">
-        <button type="button" onClick={onOpen} className="block w-full min-w-0 text-left">
-          <p className="text-sm font-medium text-[var(--muted)]">{formatSchedule(event)}</p>
-          <p className="mt-1 text-lg font-semibold text-white">{event.title || "제목 없는 공연"}</p>
+  return (
+    <div className="overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] p-4">
+      <button type="button" onClick={onOpen} className="block w-full min-w-0 text-left">
+        <p className="text-sm font-medium text-[var(--muted)]">{formatSchedule(event)}</p>
+        <p className="mt-1 text-lg font-semibold text-white">{event.title || "제목 없는 공연"}</p>
 
-          <div className="mt-4 space-y-4">
-            <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Venue</p>
-              <p className="mt-2 break-words [overflow-wrap:anywhere] text-sm leading-6 text-zinc-200">
-                {event.venueName || "장소 미정"}
-              </p>
-            </div>
+        <div className="mt-4 space-y-4">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Venue</p>
+            <p className="mt-2 break-words [overflow-wrap:anywhere] text-sm leading-6 text-zinc-200">
+              {event.venueName || "장소 미정"}
+            </p>
+          </div>
 
-            <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Artists</p>
-              <p className="mt-2 break-words [overflow-wrap:anywhere] whitespace-normal text-sm leading-6 text-zinc-200">
-                {event.artistNames || "출연 정보 없음"}
-              </p>
-            </div>
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Artists</p>
+            <p className="mt-2 break-words [overflow-wrap:anywhere] whitespace-normal text-sm leading-6 text-zinc-200">
+              {event.artistNames || "출연 정보 없음"}
+            </p>
+          </div>
 
-            <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Ticket</p>
-              <div className="mt-2 space-y-1">
-                {priceLines.length ? (
-                  priceLines.map((line) => (
-                    <p
-                      key={`${event.id}-${line}`}
-                      className="break-words [overflow-wrap:anywhere] text-sm font-medium text-white"
-                    >
-                      {line}
-                    </p>
-                  ))
-                ) : (
-                  <p className="text-sm text-[var(--muted)]">티켓 정보 없음</p>
-                )}
-              </div>
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Ticket</p>
+            <div className="mt-2 space-y-1">
+              {priceLines.length ? (
+                priceLines.map((line) => (
+                  <p
+                    key={`${event.id}-${line}`}
+                    className="break-words [overflow-wrap:anywhere] text-sm font-medium text-white"
+                  >
+                    {line}
+                  </p>
+                ))
+              ) : (
+                <p className="text-sm text-[var(--muted)]">티켓 정보 없음</p>
+              )}
             </div>
           </div>
+        </div>
+      </button>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleSave();
+          }}
+          className={`secondary-btn ${isSaved ? "text-yellow-400 border-yellow-400/50" : ""}`}
+        >
+          {isSaved ? "★" : "☆"}
         </button>
 
-        <div className="mt-4 flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleSave();
-            }}
-            className={`secondary-btn ${isSaved ? "text-yellow-400 border-yellow-400/50" : ""}`}
-          >
-            {isSaved ? "★" : "☆"}
-          </button>
-
-          <a
-            href={instagramUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="secondary-btn"
-            onClick={(e) => e.stopPropagation()}
-          >
-            Instagram
-          </a>
-        </div>
+        <a
+          href={instagramUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="secondary-btn"
+          onClick={(e) => e.stopPropagation()}
+        >
+          Instagram
+        </a>
       </div>
-    );
-  }
+    </div>
+  );
+}
