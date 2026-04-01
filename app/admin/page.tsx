@@ -58,6 +58,29 @@ function isKoreanAdminEvent(item: EventItem) {
   return !japanPattern.test(text);
 }
 
+function adminIsPastDate(dateStr?: string): boolean {
+  if (!dateStr) return false;
+  const normalized = adminNormalizeDate(dateStr);
+  if (!normalized) return false;
+  const eventEnd = new Date(`${normalized}T23:59:59`).getTime();
+  const endOfToday = new Date();
+  endOfToday.setHours(23, 59, 59, 999);
+  return eventEnd <= endOfToday.getTime();
+}
+
+function normalizeConcertTitle(title: string): string {
+  return title.toLowerCase().replace(/[\s\-_.,!?'"()\[\]]/g, "").replace(/[^\w가-힣]/g, "");
+}
+
+function areSimilarTitles(a: string, b: string): boolean {
+  const na = normalizeConcertTitle(a);
+  const nb = normalizeConcertTitle(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  if (na.length >= 4 && nb.length >= 4 && (na.includes(nb) || nb.includes(na))) return true;
+  return false;
+}
+
 function isExpiredAdminEvent(item: EventItem) {
   const date = adminNormalizeDate(item.date);
   if (!date) return false;
@@ -683,18 +706,43 @@ function CandidatesTab() {
       const rawPostPayload = { instaLink, caption, posterUrl, createdAt: serverTimestamp() };
       const rawDocRef = await addDoc(collection(db, "raw_posts"), rawPostPayload);
 
-      await addDoc(collection(db, "candidate_events"), {
-        rawPostId: rawDocRef.id,
-        instaLink, caption, posterUrl,
-        parsedTitle: parsedInfo.title || "",
-        parsedDate: parsedInfo.date || "",
-        parsedTime: parsedInfo.time || "",
-        parsedVenue: parsedInfo.venueName || "",
-        parsedArtists: parsedInfo.artistNames || "",
-        parsedTicket: parsedInfo.ticketUrl || "",
-        parsedPrice: parsedInfo.price || "",
-        createdAt: serverTimestamp()
-      });
+      const hasAllFields = !!(
+        parsedInfo.title &&
+        parsedInfo.date &&
+        parsedInfo.time &&
+        parsedInfo.venueName &&
+        parsedInfo.artistNames &&
+        parsedInfo.price &&
+        parsedInfo.ticketUrl &&
+        instaLink
+      );
+
+      if (hasAllFields) {
+        await addDoc(collection(db, "events"), {
+          title: parsedInfo.title,
+          date: parsedInfo.date,
+          time: parsedInfo.time,
+          venueName: parsedInfo.venueName,
+          artistNames: parsedInfo.artistNames,
+          sourceUrl: parsedInfo.ticketUrl,
+          instagramUrl: instaLink,
+          price: parsedInfo.price,
+          createdAt: serverTimestamp(),
+        });
+      } else {
+        await addDoc(collection(db, "candidate_events"), {
+          rawPostId: rawDocRef.id,
+          instaLink, caption, posterUrl,
+          parsedTitle: parsedInfo.title || "",
+          parsedDate: parsedInfo.date || "",
+          parsedTime: parsedInfo.time || "",
+          parsedVenue: parsedInfo.venueName || "",
+          parsedArtists: parsedInfo.artistNames || "",
+          parsedTicket: parsedInfo.ticketUrl || "",
+          parsedPrice: parsedInfo.price || "",
+          createdAt: serverTimestamp()
+        });
+      }
 
       setInstaLink(""); setCaption(""); setPosterUrl("");
     } catch (err) {
@@ -726,6 +774,26 @@ function CandidatesTab() {
     if (!approvingItem || !apTitle.trim()) return;
     setIsApproving(true);
     try {
+      const eventsSnap = await getDocs(collection(db, "events"));
+      const existingEvents = eventsSnap.docs.map(d => ({ id: d.id, ...d.data() } as EventItem));
+      const duplicate = existingEvents.find(ev => {
+        const sameDateAndVenue =
+          adminNormalizeDate(ev.date) === adminNormalizeDate(apDate) &&
+          normalizeConcertTitle(ev.venueName || "") === normalizeConcertTitle(apVenue) &&
+          normalizeConcertTitle(ev.venueName || "").length > 0;
+        return sameDateAndVenue && areSimilarTitles(ev.title || "", apTitle);
+      });
+
+      if (duplicate) {
+        const confirmed = window.confirm(
+          `⚠️ 중복 감지: "${duplicate.title}" 공연이 같은 날짜·장소에 이미 등록되어 있습니다.\n한국어/영어로 같은 공연이 중복 등록되는 경우일 수 있습니다.\n\n그래도 등록하시겠습니까?`
+        );
+        if (!confirmed) {
+          setIsApproving(false);
+          return;
+        }
+      }
+
       await addDoc(collection(db, "events"), {
         title: apTitle,
         date: apDate,
@@ -802,13 +870,15 @@ function CandidatesTab() {
             <h2 className="text-lg font-semibold text-white">AI 자동 파싱 큐 대기열 (candidate_events)</h2>
             <span className="text-xs font-bold bg-amber-500/20 text-amber-500 px-3 py-1.5 rounded-full">{candidates.length}</span>
           </div>
-          {candidates.length === 0 ? (
+          {(() => {
+            const visibleCandidates = candidates.filter(can => !adminIsPastDate(can.parsedDate));
+            return visibleCandidates.length === 0 ? (
             <div className="bg-[#121212] border border-white/5 rounded-[2rem] p-16 text-center flex flex-col items-center justify-center">
               <p className="text-zinc-500 font-medium">현재 AI 심사 대기 중인 항목이 없습니다.</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {candidates.map(can => (
+              {visibleCandidates.map(can => (
                 <div key={can.id} className="bg-[#121212] border border-amber-500/20 rounded-3xl p-6 flex flex-col gap-4 group hover:border-amber-500/50 transition-colors">
                   <div className="flex-1">
                     <a href={can.instaLink} target="_blank" rel="noreferrer" className="text-xs font-medium text-blue-400 hover:text-blue-300 underline underline-offset-4 decoration-blue-500/30 inline-block mb-3">게시물 원본 열기 ↗</a>
@@ -854,7 +924,8 @@ function CandidatesTab() {
                 </div>
               ))}
             </div>
-          )}
+          );
+          })()}
         </div>
       </div>
     </>

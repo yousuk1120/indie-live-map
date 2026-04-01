@@ -253,6 +253,8 @@ export default function Home() {
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const markersRef = useRef<any[]>([]);
+  const mapRef = useRef<any>(null);
+  const venuePositionsRef = useRef<Map<string, any>>(new Map());
   const kakaoKey = process.env.NEXT_PUBLIC_KAKAO_MAP_API_KEY;
 
   useEffect(() => {
@@ -381,7 +383,7 @@ export default function Home() {
 
   useEffect(() => {
     if (viewMode !== "map") return;
-    if (!mapReady || !window.kakao?.maps?.services || !mapContainerRef.current) return;
+    if (!mapReady || !window.kakao?.maps || !mapContainerRef.current) return;
     if (!venueBuckets.length) return;
 
     let cancelled = false;
@@ -394,8 +396,10 @@ export default function Home() {
         level: 6,
       });
 
+      mapRef.current = map;
       markersRef.current.forEach((marker) => marker.setMap(null));
       markersRef.current = [];
+      venuePositionsRef.current.clear();
 
       const places = new window.kakao.maps.services.Places();
       const bounds = new window.kakao.maps.LatLngBounds();
@@ -432,6 +436,7 @@ export default function Home() {
               const position = new window.kakao.maps.LatLng(Number(place.y), Number(place.x));
               const marker = new window.kakao.maps.Marker({ map, position });
               markersRef.current.push(marker);
+              venuePositionsRef.current.set(bucket.venueName, position);
               bounds.extend(position);
               found += 1;
 
@@ -461,6 +466,7 @@ export default function Home() {
     return () => {
       cancelled = true;
       markersRef.current.forEach((marker) => marker.setMap(null));
+      venuePositionsRef.current.clear();
     };
   }, [viewMode, mapReady, venueBuckets, origin]);
 
@@ -567,7 +573,11 @@ export default function Home() {
                         <button
                           key={bucket.venueName}
                           type="button"
-                          onClick={() => setActiveVenue(bucket.venueName)}
+                          onClick={() => {
+                            setActiveVenue(bucket.venueName);
+                            const pos = venuePositionsRef.current.get(bucket.venueName);
+                            if (pos && mapRef.current) mapRef.current.panTo(pos);
+                          }}
                           className={`w-full rounded-2xl border px-4 py-4 text-left transition ${bucket.venueName === activeVenue
                               ? "border-[var(--accent)] bg-[var(--accent-soft)]"
                               : "border-[var(--line)] bg-[var(--panel-2)] hover:border-[var(--accent)]/60"
