@@ -48,3 +48,44 @@ npm run dev
    로그인 창에서 권한을 얻고 `/admin`에 들어가서 임의의 공연 정보(예: "홍대 테스트 공연")를 등록합니다. [등록 완료] 버튼을 누르자마자 우측 영역에 새로고침 없이 항목이 뜨는 것을 확인합니다.
    목록란의 [삭제] 버튼을 클릭 시, 화면에서 공연이 실시간으로 부드럽게 지워지는지까지 확인하시면 모든 데이터 연동 테스트가 통과된 것입니다.
    .
+소개
+이 프로젝트는 인디 공연 정보를 누구나 조회하고, 관리자만 등록·삭제할 수 있는 인디 공연 전용 웹 애플리케이션입니다.
+Next.js 기반으로 제작되었으며, 사용자 인증과 데이터 저장은 Firebase(Authentication + Firestore)로 처리합니다.
+주요 기능
+
+공연 목록 조회 — 일반 사용자가 별도 로그인 없이 현재 등록된 공연 리스트를 확인할 수 있습니다.
+관리자 인증 — 이메일/비밀번호 및 Google 로그인을 지원하며, 로그인 시 관리자 페이지로 자동 이동합니다.
+공연 등록·삭제 — 로그인한 관리자가 새 공연을 등록하거나 기존 공연을 삭제할 수 있습니다.
+실시간 동기화 — 등록·삭제 시 새로고침 없이 화면에 즉시 반영됩니다. (Firestore 실시간 연동)
+라우트 보호(Route Protection) — 비로그인 사용자가 관리자 페이지(/admin)에 접근하면 자동으로 로그인 페이지(/login)로 이동합니다.
+
+화면 구성
+경로역할/등록된 공연을 조회하는 사용자 전용 뷰어 페이지/login관리자 진입을 위한 인증 화면 (이메일 / Google 로그인)/admin공연 등록·삭제가 가능한 관리자 전용 화면 (로그인 필수)
+사용 방법
+
+다운로드 / 클론
+
+bash   git clone https://github.com/yousuk1120/indie-live-map.git
+   cd indie-live-map
+
+패키지 설치
+
+bash   npm install
+
+실행
+
+bash   npm run dev
+브라우저에서 http://localhost:3000 접속
+동작 확인 순서
+
+메인 화면 조회 — http://localhost:3000 접속 → 공연 리스트(또는 빈 화면 안내) 확인
+라우트 보호 확인 — 시크릿 창에서 http://localhost:3000/admin 접속 → /login으로 자동 이동되는지 확인
+등록·삭제 확인 — 로그인 후 /admin에서 공연 등록 → 새로고침 없이 목록 반영 확인 → 삭제 버튼 클릭 시 실시간 제거 확인
+
+기술 스택
+
+Frontend: Next.js, TypeScript
+Backend / Infra: Firebase Authentication, Cloud Firestore
+
+라이선스
+MIT License
