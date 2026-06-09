@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, serverTimestamp, where, getDocs } from "firebase/firestore";
@@ -52,10 +52,10 @@ function isKoreanAdminEvent(item: EventItem) {
     .map(adminToText)
     .join(" ");
 
-  const japanPattern =
-    /도쿄|오사카|교토|시부야|신주쿠|시모키타|나고야|후쿠오카|삿포로|Tokyo|Osaka|Kyoto|Shibuya|Shinjuku|Shimokitazawa|Nagoya|Fukuoka|Sapporo|Japan|日本|東京|大阪|京都|渋谷|新宿|下北沢|名古屋|福岡|札幌/i;
+  const foreignPattern =
+    /도쿄|오사카|교토|시부야|신주쿠|시모키타|나고야|후쿠오카|삿포로|Tokyo|Osaka|Kyoto|Shibuya|Shinjuku|Shimokitazawa|Nagoya|Fukuoka|Sapporo|Japan|日本|東京|大阪|京都|渋谷|新宿|下北沢|名古屋|福岡|札幌|Taiwan|Taipei|Bangkok|Shanghai|Beijing|Hong Kong|Singapore|New York|London|Berlin|Paris|LA|Los Angeles|Brooklyn|Chicago|Toronto|Sydney|Melbourne|Manila|Jakarta|Vietnam|Hanoi|Ho Chi Minh|Thailand|China|Philippines|Indonesia|Malaysia|USA|UK|Europe|Cotoba|COTOBA/i;
 
-  return !japanPattern.test(text);
+  return !foreignPattern.test(text);
 }
 
 function adminIsPastDate(dateStr?: string): boolean {
@@ -78,6 +78,25 @@ function areSimilarTitles(a: string, b: string): boolean {
   if (!na || !nb) return false;
   if (na === nb) return true;
   if (na.length >= 4 && nb.length >= 4 && (na.includes(nb) || nb.includes(na))) return true;
+
+  // 페스티벌 한/영 동의어 그룹 처리
+  const festKeywords = [
+    ["펜타포트", "pentaport"],
+    ["원유니버스", "oneuniverse"],
+    ["dmz", "디엠지", "피스트레인", "peacetrain"],
+    ["점프", "jumf", "전주얼티밋"],
+    ["그랜드민트", "gmf", "grandmint"],
+    ["뷰티풀민트", "bml", "beautifulmint"],
+    ["부산국제록", "birs", "busanrock"],
+    ["사운드베리", "soundberry"],
+  ];
+
+  for (const group of festKeywords) {
+    if (group.some(k => na.includes(k)) && group.some(k => nb.includes(k))) {
+      return true;
+    }
+  }
+
   return false;
 }
 
@@ -100,7 +119,6 @@ type SourceAccount = {
 };
 
 type CandidateEvent = {
-
   id: string;
   rawPostId?: string;
   instaLink: string;
@@ -133,43 +151,58 @@ export default function AdminPage() {
     router.push("/login");
   };
 
+  // onAuthStateChanged 판정 전에는 관리자 UI를 절대 렌더하지 않습니다 (깜빡임 방지).
   if (loadingAuth) {
-    return <div className="min-h-screen bg-[#0a0a0a] text-white flex items-center justify-center">Loading...</div>;
+    return (
+      <div className="min-h-screen bg-[var(--bg)] text-white flex items-center justify-center">
+        <div className="flex flex-col items-center gap-5 animate-fade-in">
+          <div className="auth-spinner" />
+          <div className="text-center">
+            <p className="text-sm font-semibold text-white">관리자 인증 확인 중</p>
+            <p className="mt-1 text-xs text-[var(--muted)]">잠시만 기다려주세요...</p>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-zinc-200 selection:bg-white/20 font-sans">
-      <div className="max-w-[1400px] mx-auto p-4 md:p-8">
-        <div className="mb-6 flex items-center justify-between">
-          <h1 className="text-2xl font-semibold text-white">Admin</h1>
-          <Link href="/" className="secondary-btn">
+    <div className="relative min-h-screen overflow-x-clip bg-[var(--bg)] text-[var(--text-secondary)] font-sans">
+      <div aria-hidden className="bg-aurora" />
+
+      <div className="relative max-w-[1400px] mx-auto p-4 md:p-8">
+        {/* ─── Top Bar ─── */}
+        <div className="flex items-center justify-between mb-8">
+          <Link href="/" className="text-xs text-[var(--muted)] hover:text-white transition-colors duration-200">
             ← Concert Schedule
           </Link>
-        </div>
-
-        {/* Header */}
-        <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10 pb-6 border-b border-white/5">
-          <div>
-            <h1 className="text-2xl md:text-3xl font-semibold tracking-tight text-white mb-2">Workspace</h1>
-            <p className="text-zinc-500 text-sm">인디 라이브 인벤토리 및 자동화 파이프라인 관리</p>
-          </div>
           <button
             onClick={handleLogout}
-            className="bg-white/5 hover:bg-white/10 text-zinc-300 px-5 py-2.5 rounded-2xl text-sm font-medium transition duration-200 w-fit"
+            className="text-xs text-[var(--muted)] hover:text-white transition-all duration-200 px-4 py-2 rounded-lg border border-[var(--line)] hover:border-[var(--accent-border)] active:scale-95"
           >
             로그아웃
           </button>
-        </header>
-
-        {/* Modern Pill Tabs */}
-        <div className="flex flex-wrap gap-2 mb-10 p-1.5 bg-[#121212] rounded-3xl w-fit border border-white/5">
-          <TabButton active={activeTab === "events"} onClick={() => setActiveTab("events")} label="본공연 일정 (events)" icon="🎸" />
-          <TabButton active={activeTab === "sources"} onClick={() => setActiveTab("sources")} label="수집 타겟 풀 (source_accounts)" icon="📡" />
-          <TabButton active={activeTab === "candidates"} onClick={() => setActiveTab("candidates")} label="후보 AI 검수 큐" icon="🤖" />
         </div>
 
-        {/* Tab Content */}
-        <main className="animate-in fade-in duration-500">
+        {/* ─── Header ─── */}
+        <header className="mb-10 pb-6 border-b border-[var(--line)] animate-fade-in">
+          <p className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.28em] text-[var(--accent)]">
+            <span className="live-dot" />
+            Control Center
+          </p>
+          <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-white">Admin</h1>
+          <p className="text-[var(--muted)] text-xs mt-1.5">인디 라이브 인벤토리 및 자동화 파이프라인 관리</p>
+        </header>
+
+        {/* ─── Tabs ─── */}
+        <div className="flex flex-wrap gap-1 mb-8 p-1 bg-[var(--panel)] rounded-2xl w-fit border border-[var(--line)]">
+          <TabButton active={activeTab === "events"} onClick={() => setActiveTab("events")} label="공연 일정" />
+          <TabButton active={activeTab === "sources"} onClick={() => setActiveTab("sources")} label="수집 타겟" />
+          <TabButton active={activeTab === "candidates"} onClick={() => setActiveTab("candidates")} label="승인 대기" />
+        </div>
+
+        {/* ─── Tab Content ─── */}
+        <main>
           {activeTab === "events" && <EventsTab />}
           {activeTab === "sources" && <SourcesTab />}
           {activeTab === "candidates" && <CandidatesTab />}
@@ -179,24 +212,23 @@ export default function AdminPage() {
   );
 }
 
-function TabButton({ active, onClick, label, icon }: { active: boolean, onClick: () => void, label: string, icon: string }) {
+function TabButton({ active, onClick, label }: { active: boolean, onClick: () => void, label: string }) {
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-2.5 px-6 py-3 rounded-2xl text-sm font-medium transition-all duration-300 ${active
-        ? "bg-white/10 text-white shadow-sm ring-1 ring-white/10"
-        : "text-zinc-500 hover:text-zinc-300 hover:bg-white/5"
+      className={`px-5 py-2.5 rounded-xl text-xs font-semibold transition-all duration-300 active:scale-95 ${active
+        ? "bg-[var(--accent)] text-[#0a0a12] shadow-[0_2px_16px_var(--accent-glow)]"
+        : "text-[var(--muted)] hover:text-white hover:bg-white/5"
         }`}
     >
-      <span className="opacity-80 text-base">{icon}</span>
       {label}
     </button>
   );
 }
 
-// ----------------------------------------------------------------------
-// [Tab 1] EventsTab (기존 공연 일정 관리 유지)
-// ----------------------------------------------------------------------
+// ──────────────────────────────────────────────────
+// [Tab 1] EventsTab — onSnapshot 유지 + 낙관적 업데이트(Optimistic UI)
+// ──────────────────────────────────────────────────
 function EventsTab() {
   const [events, setEvents] = useState<EventItem[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -209,6 +241,11 @@ function EventsTab() {
   const [instagramUrl, setInstagramUrl] = useState("");
   const [price, setPrice] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDedupRunning, setIsDedupRunning] = useState(false);
+
+  // Optimistic UI 상태: 서버 확정 전 즉시 화면에 반영하고, 실패 시 롤백합니다.
+  const [pendingDeleteIds, setPendingDeleteIds] = useState<Set<string>>(new Set());
+  const [optimisticEdits, setOptimisticEdits] = useState<Record<string, Partial<EventItem>>>({});
 
   useEffect(() => {
     const cleanupExpired = async () => {
@@ -237,6 +274,15 @@ function EventsTab() {
     });
   }, []);
 
+  // 화면에 보여줄 목록: 삭제 대기 항목 제외 + 수정 대기 내용 병합
+  const displayedEvents = useMemo(
+    () =>
+      events
+        .filter((ev) => !pendingDeleteIds.has(ev.id))
+        .map((ev) => (optimisticEdits[ev.id] ? { ...ev, ...optimisticEdits[ev.id] } : ev)),
+    [events, pendingDeleteIds, optimisticEdits]
+  );
+
   const handleEditClick = (item: EventItem) => {
     setEditingId(item.id);
     setTitle(item.title || "");
@@ -252,14 +298,8 @@ function EventsTab() {
 
   const handleCancelEdit = () => {
     setEditingId(null);
-    setTitle("");
-    setDate("");
-    setTime("");
-    setVenueName("");
-    setArtistNames("");
-    setSourceUrl("");
-    setInstagramUrl("");
-    setPrice("");
+    setTitle(""); setDate(""); setTime(""); setVenueName("");
+    setArtistNames(""); setSourceUrl(""); setInstagramUrl(""); setPrice("");
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -269,33 +309,37 @@ function EventsTab() {
     setIsSubmitting(true);
     try {
       if (editingId) {
-        await updateDoc(doc(db, "events", editingId), {
-          title,
-          date,
-          time,
-          venueName,
-          artistNames,
-          sourceUrl,
-          instagramUrl,
-          price,
-        });
+        const id = editingId;
+        const payload = { title, date, time, venueName, artistNames, sourceUrl, instagramUrl, price };
+
+        // 낙관적 업데이트: 서버 응답을 기다리지 않고 즉시 화면에 반영
+        setOptimisticEdits((prev) => ({ ...prev, [id]: payload }));
+        handleCancelEdit();
+
+        try {
+          await updateDoc(doc(db, "events", id), payload);
+        } catch (error) {
+          console.error("수정 실패:", error);
+          alert("수정에 실패했습니다. 변경 사항이 되돌려집니다.");
+        } finally {
+          // 성공 시 onSnapshot이 서버 데이터를 반영하므로 임시 상태 제거,
+          // 실패 시 임시 상태 제거로 원래 데이터로 롤백됩니다.
+          setOptimisticEdits((prev) => {
+            const next = { ...prev };
+            delete next[id];
+            return next;
+          });
+        }
       } else {
         await addDoc(collection(db, "events"), {
-          title,
-          date,
-          time,
-          venueName,
-          artistNames,
-          sourceUrl,
-          instagramUrl,
-          price,
+          title, date, time, venueName, artistNames, sourceUrl, instagramUrl, price,
           createdAt: serverTimestamp(),
         });
+        handleCancelEdit();
       }
-
-      handleCancelEdit();
     } catch (error) {
       console.error(error);
+      alert("저장에 실패했습니다. 다시 시도해주세요.");
     } finally {
       setIsSubmitting(false);
     }
@@ -304,54 +348,113 @@ function EventsTab() {
   const handleDelete = async (id: string) => {
     if (!window.confirm("공연을 완전 삭제하시겠습니까?")) return;
     if (editingId === id) handleCancelEdit();
-    await deleteDoc(doc(db, "events", id));
+
+    // 낙관적 삭제: 목록에서 즉시 숨김
+    setPendingDeleteIds((prev) => new Set(prev).add(id));
+    try {
+      await deleteDoc(doc(db, "events", id));
+    } catch (error) {
+      console.error("삭제 실패:", error);
+      alert("삭제에 실패했습니다. 항목이 복원됩니다.");
+    } finally {
+      // 성공 시 onSnapshot이 이미 항목을 제거했고, 실패 시 항목이 다시 표시됩니다.
+      setPendingDeleteIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  };
+
+  // 중복 제거 유틸리티
+  const handleDedup = async () => {
+    if (!window.confirm("같은 날짜+장소+유사 제목의 중복 공연을 자동으로 정리합니다.\n(가장 오래된 것 1개만 남기고 나머지를 삭제합니다)\n\n진행하시겠습니까?")) return;
+
+    setIsDedupRunning(true);
+    try {
+      const snapshot = await getDocs(collection(db, "events"));
+      const allEvents = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as EventItem));
+
+      // 그룹핑: 같은 날짜+장소+유사 제목
+      const groups = new Map<string, EventItem[]>();
+      for (const ev of allEvents) {
+        const dateKey = adminNormalizeDate(ev.date);
+        const venueKey = normalizeConcertTitle(ev.venueName || "");
+        if (!dateKey || !venueKey) continue;
+
+        const groupKey = `${dateKey}__${venueKey}`;
+
+        let foundGroup = false;
+        for (const [key, group] of groups.entries()) {
+          if (key.startsWith(`${dateKey}__`) && areSimilarTitles(group[0].title || "", ev.title || "")) {
+            group.push(ev);
+            foundGroup = true;
+            break;
+          }
+        }
+
+        if (!foundGroup) {
+          const existing = groups.get(groupKey);
+          if (existing && areSimilarTitles(existing[0].title || "", ev.title || "")) {
+            existing.push(ev);
+          } else {
+            groups.set(`${groupKey}__${normalizeConcertTitle(ev.title || "")}`, [ev]);
+          }
+        }
+      }
+
+      let deletedCount = 0;
+      for (const [, group] of groups) {
+        if (group.length <= 1) continue;
+
+        // 첫 번째(가장 오래된) 것만 남기고 나머지 삭제
+        for (let i = 1; i < group.length; i++) {
+          await deleteDoc(doc(db, "events", group[i].id));
+          deletedCount++;
+        }
+      }
+
+      alert(`중복 정리 완료: ${deletedCount}개의 중복 공연이 삭제되었습니다.`);
+    } catch (error) {
+      console.error(error);
+      alert("중복 정리 중 오류가 발생했습니다.");
+    } finally {
+      setIsDedupRunning(false);
+    }
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-10">
-      <div className="lg:col-span-4 flex flex-col gap-6 self-start lg:sticky lg:top-8 max-h-[calc(100vh-4rem)] overflow-y-auto px-1 pb-4 custom-scrollbar">
-        <div className="bg-[#121212] border border-white/5 rounded-[2rem] p-7 md:p-8 shadow-2xl relative overflow-hidden group">
-          {editingId ? (
-            <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-amber-500/40 to-transparent"></div>
-          ) : (
-            <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-blue-500/40 to-transparent"></div>
-          )}
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8">
+      {/* ─── Form Panel ─── */}
+      <div className="lg:col-span-4 flex flex-col gap-4 self-start lg:sticky lg:top-8 max-h-[calc(100vh-4rem)] overflow-y-auto custom-scrollbar">
+        <div className="bg-[var(--panel)] border border-[var(--line)] rounded-2xl p-6 relative">
+          <div className={`absolute top-0 inset-x-0 h-px ${editingId ? "bg-[var(--accent)]" : "bg-white/10"}`} />
 
-          <h2 className="text-lg font-semibold mb-8 text-white flex items-center gap-3">
-            {editingId ? (
-              <>
-                <span className="w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.6)]"></span>
-                수정하기
-              </>
-            ) : (
-              <>
-                <span className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]"></span>
-                새 공연 수동 등록
-              </>
-            )}
+          <h2 className="text-sm font-semibold mb-6 text-white flex items-center gap-2">
+            <span className={`w-1.5 h-1.5 rounded-full ${editingId ? "bg-[var(--accent)]" : "bg-white/40"}`} />
+            {editingId ? "수정하기" : "새 공연 등록"}
           </h2>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-3">
             <Input label="공연 제목" value={title} onChange={setTitle} required />
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-3">
               <Input label="날짜" placeholder="YYYY-MM-DD" value={date} onChange={setDate} />
               <Input label="시간" placeholder="19:00" value={time} onChange={setTime} />
             </div>
             <Input label="장소명" value={venueName} onChange={setVenueName} />
-            <div className="grid grid-cols-2 gap-4">
-              <Input label="참여 아티스트" value={artistNames} onChange={setArtistNames} />
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="아티스트" value={artistNames} onChange={setArtistNames} />
               <Input label="티켓 가격" value={price} onChange={setPrice} />
             </div>
-            <Input label="예매 / 안내 링크" type="text" value={sourceUrl} onChange={setSourceUrl} />
-            <Input label="인스타그램 링크" type="text" value={instagramUrl} onChange={setInstagramUrl} />
+            <Input label="예매 링크" value={sourceUrl} onChange={setSourceUrl} />
+            <Input label="인스타그램 링크" value={instagramUrl} onChange={setInstagramUrl} />
 
-            <div className="flex gap-4 pt-2">
+            <div className="flex gap-3 pt-3">
               <button
                 disabled={isSubmitting}
-                className={`flex-1 py-4 rounded-2xl font-semibold transition-all duration-300 ${editingId ? "bg-amber-500 text-black hover:bg-amber-400" : "bg-white text-black hover:bg-zinc-200"
-                  } disabled:opacity-50`}
+                className="flex-1 py-3 rounded-xl font-semibold text-sm transition-all duration-300 bg-gradient-to-br from-[var(--accent)] to-[var(--accent-deep)] text-[#0a0a12] hover:brightness-110 hover:shadow-[0_4px_20px_var(--accent-glow)] active:scale-[0.98] disabled:opacity-50"
               >
-                {editingId ? "변경사항 저장" : "추가하기"}
+                {editingId ? "저장" : "추가"}
               </button>
 
               {editingId && (
@@ -359,7 +462,7 @@ function EventsTab() {
                   type="button"
                   onClick={handleCancelEdit}
                   disabled={isSubmitting}
-                  className="px-6 bg-white/5 border border-white/5 text-zinc-400 hover:text-white rounded-2xl font-medium transition-all"
+                  className="px-5 border border-[var(--line-strong)] text-[var(--muted)] hover:text-white hover:border-[var(--accent-border)] rounded-xl text-sm font-medium transition-all duration-200 active:scale-95"
                 >
                   취소
                 </button>
@@ -369,51 +472,61 @@ function EventsTab() {
         </div>
       </div>
 
-      <div className="lg:col-span-8 flex flex-col gap-5">
-        <div className="flex items-center justify-between px-2">
-          <h2 className="text-lg font-semibold text-white">등록된 항목 (events)</h2>
-          <span className="text-xs font-semibold bg-white/10 text-zinc-300 px-3 py-1.5 rounded-full">
-            {events.length}
-          </span>
+      {/* ─── Event List ─── */}
+      <div className="lg:col-span-8 flex flex-col gap-4">
+        <div className="flex items-center justify-between px-1">
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-semibold text-white">등록된 공연</h2>
+            <span className="text-[10px] font-bold bg-[var(--accent-soft)] text-[var(--accent)] px-2 py-1 rounded-md tabular-nums">
+              {displayedEvents.length}
+            </span>
+          </div>
+          <button
+            onClick={handleDedup}
+            disabled={isDedupRunning}
+            className="text-[11px] font-semibold text-[var(--muted)] hover:text-white px-3 py-1.5 rounded-lg border border-[var(--line)] hover:border-[var(--accent-border)] transition-all duration-200 active:scale-95 disabled:opacity-50"
+          >
+            {isDedupRunning ? "정리 중..." : "🧹 중복 정리"}
+          </button>
         </div>
 
-        {events.length === 0 ? (
-          <div className="bg-[#121212] border border-white/5 rounded-[2rem] p-16 text-center flex flex-col items-center justify-center">
-            <p className="text-zinc-500 font-medium">표시할 공연이 없습니다.</p>
+        {displayedEvents.length === 0 ? (
+          <div className="bg-[var(--panel)] border border-[var(--line)] rounded-2xl p-16 text-center">
+            <p className="text-[var(--muted)] text-sm">표시할 공연이 없습니다.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {events.map((ev) => (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {displayedEvents.map((ev) => (
               <div
                 key={ev.id}
-                className={`bg-[#121212] border ${editingId === ev.id ? "border-amber-500/30" : "border-white/5"
-                  } rounded-3xl p-6 transition-all group flex flex-col`}
+                className={`bg-[var(--panel)] border ${editingId === ev.id ? "border-[var(--accent-border)]" : "border-[var(--line)]"
+                  } rounded-2xl p-5 transition-all hover-card flex flex-col`}
               >
                 <div className="flex-1">
-                  <h3 className="font-semibold text-lg text-white mb-5 line-clamp-2 leading-snug">{ev.title}</h3>
-                  <div className="space-y-3 text-sm text-zinc-400">
+                  <h3 className="font-semibold text-white mb-4 line-clamp-2 leading-snug">{ev.title}</h3>
+                  <div className="space-y-2 text-xs text-[var(--muted)]">
                     {ev.date && (
-                      <p className="flex gap-4">
-                        <span className="text-zinc-600 font-medium shrink-0">일시</span>
-                        <span className="text-zinc-200">{ev.date} {ev.time}</span>
+                      <p className="flex gap-3">
+                        <span className="text-white/20 font-medium shrink-0 w-8">일시</span>
+                        <span className="text-[var(--text-secondary)]">{ev.date} {ev.time}</span>
                       </p>
                     )}
                     {ev.venueName && (
-                      <p className="flex gap-4">
-                        <span className="text-zinc-600 font-medium shrink-0">장소</span>
-                        <span className="text-zinc-200">{ev.venueName}</span>
+                      <p className="flex gap-3">
+                        <span className="text-white/20 font-medium shrink-0 w-8">장소</span>
+                        <span className="text-[var(--text-secondary)]">{ev.venueName}</span>
                       </p>
                     )}
                     {ev.artistNames && (
-                      <p className="flex gap-4">
-                        <span className="text-zinc-600 font-medium shrink-0">출연</span>
-                        <span className="text-zinc-200 line-clamp-2">{ev.artistNames}</span>
+                      <p className="flex gap-3">
+                        <span className="text-white/20 font-medium shrink-0 w-8">출연</span>
+                        <span className="text-[var(--text-secondary)] line-clamp-2">{ev.artistNames}</span>
                       </p>
                     )}
                     {ev.price && (
-                      <p className="flex gap-4">
-                        <span className="text-zinc-600 font-medium shrink-0">가격</span>
-                        <span className="text-pink-300 font-bold">{ev.price}</span>
+                      <p className="flex gap-3">
+                        <span className="text-white/20 font-medium shrink-0 w-8">가격</span>
+                        <span className="text-white font-semibold">{ev.price}</span>
                       </p>
                     )}
                     {ev.instagramUrl && (
@@ -421,24 +534,24 @@ function EventsTab() {
                         href={ev.instagramUrl}
                         target="_blank"
                         rel="noreferrer"
-                        className="inline-block mt-4 text-xs font-medium text-blue-400 hover:text-blue-300 underline underline-offset-4 decoration-blue-500/30"
+                        className="inline-block mt-2 text-[11px] font-medium text-[var(--muted)] hover:text-[var(--accent)] underline underline-offset-4 decoration-white/10 transition-colors"
                       >
-                        인스타그램 링크 열기
+                        인스타그램 ↗
                       </a>
                     )}
                   </div>
                 </div>
 
-                <div className="mt-8 flex gap-2">
+                <div className="mt-5 flex gap-2 pt-3 border-t border-[var(--line)]">
                   <button
                     onClick={() => handleEditClick(ev)}
-                    className="flex-1 bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white py-3 rounded-2xl text-xs font-semibold transition"
+                    className="flex-1 bg-white/5 hover:bg-[var(--accent-soft)] text-[var(--muted)] hover:text-[var(--accent)] py-2.5 rounded-xl text-[11px] font-semibold transition-all duration-200 active:scale-95"
                   >
                     수정
                   </button>
                   <button
                     onClick={() => handleDelete(ev.id)}
-                    className="flex-1 bg-red-500/5 hover:bg-red-500/10 text-red-400 hover:text-red-300 py-3 rounded-2xl text-xs font-semibold transition"
+                    className="flex-1 bg-white/5 hover:bg-red-500/10 text-white/30 hover:text-red-400 py-2.5 rounded-xl text-[11px] font-semibold transition-all duration-200 active:scale-95"
                   >
                     삭제
                   </button>
@@ -452,9 +565,9 @@ function EventsTab() {
   );
 }
 
-// ----------------------------------------------------------------------
-// [Tab 2] SourcesTab (수집용 타겟 관리 - source_accounts)
-// ----------------------------------------------------------------------
+// ──────────────────────────────────────────────────
+// [Tab 2] SourcesTab — onSnapshot 유지 + 낙관적 토글/삭제
+// ──────────────────────────────────────────────────
 function SourcesTab() {
   const [sources, setSources] = useState<SourceAccount[]>([]);
   const [accountName, setAccountName] = useState("");
@@ -462,11 +575,23 @@ function SourcesTab() {
   const [isActive, setIsActive] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Optimistic UI 상태
+  const [pendingDeleteIds, setPendingDeleteIds] = useState<Set<string>>(new Set());
+  const [optimisticActive, setOptimisticActive] = useState<Record<string, boolean>>({});
+
   useEffect(() => {
     return onSnapshot(query(collection(db, "source_accounts")), snap =>
       setSources(snap.docs.map(d => ({ id: d.id, ...d.data() } as SourceAccount)))
     );
   }, []);
+
+  const displayedSources = useMemo(
+    () =>
+      sources
+        .filter((s) => !pendingDeleteIds.has(s.id))
+        .map((s) => (s.id in optimisticActive ? { ...s, isActive: optimisticActive[s.id] } : s)),
+    [sources, pendingDeleteIds, optimisticActive]
+  );
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -477,61 +602,99 @@ function SourcesTab() {
       setAccountName(""); setCategory("공연장"); setIsActive(true);
     } catch (err) {
       console.error(err);
+      alert("타겟 추가에 실패했습니다.");
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const toggle = async (id: string, cur: boolean) => updateDoc(doc(db, "source_accounts", id), { isActive: !cur });
-  const del = async (id: string) => { if (window.confirm("삭제하시겠습니까?")) deleteDoc(doc(db, "source_accounts", id)); };
+  const toggle = async (id: string, cur: boolean) => {
+    // 낙관적 토글: 즉시 화면에 반영
+    setOptimisticActive((prev) => ({ ...prev, [id]: !cur }));
+    try {
+      await updateDoc(doc(db, "source_accounts", id), { isActive: !cur });
+    } catch (err) {
+      console.error("토글 실패:", err);
+      alert("상태 변경에 실패했습니다.");
+    } finally {
+      setOptimisticActive((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    }
+  };
+
+  const del = async (id: string) => {
+    if (!window.confirm("삭제하시겠습니까?")) return;
+
+    // 낙관적 삭제: 즉시 화면에서 숨김
+    setPendingDeleteIds((prev) => new Set(prev).add(id));
+    try {
+      await deleteDoc(doc(db, "source_accounts", id));
+    } catch (err) {
+      console.error("삭제 실패:", err);
+      alert("삭제에 실패했습니다. 항목이 복원됩니다.");
+    } finally {
+      setPendingDeleteIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-10">
-      <div className="lg:col-span-4 flex flex-col gap-6 self-start lg:sticky lg:top-8 max-h-[calc(100vh-4rem)] overflow-y-auto px-1 pb-4 custom-scrollbar">
-        <div className="bg-[#121212] border border-white/5 rounded-[2rem] p-7 md:p-8 shadow-2xl relative">
-          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-purple-500/40 to-transparent"></div>
-          <h2 className="text-lg font-semibold mb-8 text-white flex items-center gap-3">
-            <span className="w-2 h-2 rounded-full bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.6)]"></span>타겟망 추가
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8">
+      <div className="lg:col-span-4 flex flex-col gap-4 self-start lg:sticky lg:top-8 max-h-[calc(100vh-4rem)] overflow-y-auto custom-scrollbar">
+        <div className="bg-[var(--panel)] border border-[var(--line)] rounded-2xl p-6 relative">
+          <div className="absolute top-0 inset-x-0 h-px bg-white/10" />
+          <h2 className="text-sm font-semibold mb-6 text-white flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-white/40" />
+            타겟 추가
           </h2>
-          <form onSubmit={handleAdd} className="space-y-4">
+          <form onSubmit={handleAdd} className="space-y-3">
             <Input label="인스타그램 아이디" value={accountName} onChange={setAccountName} required placeholder="rollinghall" />
             <div>
-              <label className="block text-xs font-medium text-zinc-500 mb-2 pl-1">분류 속성</label>
-              <select value={category} onChange={e => setCategory(e.target.value)} className="w-full bg-white/5 border border-transparent focus:border-white/10 rounded-2xl px-5 py-4 text-sm text-white outline-none appearance-none">
-                <option value="공연장" className="bg-[#121212]">공연장</option>
-                <option value="밴드" className="bg-[#121212]">밴드</option>
-                <option value="기획사" className="bg-[#121212]">기획사</option>
+              <label className="block text-[11px] font-medium text-[var(--muted)] mb-1.5 pl-0.5">분류</label>
+              <select value={category} onChange={e => setCategory(e.target.value)} className="w-full bg-white/5 border border-[var(--line)] focus:border-[var(--accent-border)] rounded-xl px-4 py-3 text-xs text-white outline-none appearance-none transition-colors">
+                <option value="공연장" className="bg-black">공연장</option>
+                <option value="밴드" className="bg-black">밴드</option>
+                <option value="기획사" className="bg-black">기획사</option>
               </select>
             </div>
-            <div className="flex items-center justify-between p-5 bg-white/5 rounded-2xl mt-4 cursor-pointer hover:bg-white/10 transition-colors" onClick={() => setIsActive(!isActive)}>
-              <span className="text-sm font-medium text-zinc-300">자동 수집 활성화</span>
-              <div className={`w-11 h-6 rounded-full p-1 transition-colors ${isActive ? 'bg-purple-500' : 'bg-zinc-700'}`}>
-                <div className={`w-4 h-4 rounded-full bg-white transition-transform ${isActive ? 'translate-x-5' : 'translate-x-0'}`}></div>
+            <div
+              className="flex items-center justify-between p-4 bg-white/[0.03] rounded-xl cursor-pointer hover:bg-white/[0.05] transition"
+              onClick={() => setIsActive(!isActive)}
+            >
+              <span className="text-xs font-medium text-[var(--text-secondary)]">자동 수집 활성화</span>
+              <div className={`w-9 h-5 rounded-full p-0.5 transition-colors duration-300 ${isActive ? 'bg-[var(--accent)]' : 'bg-white/10'}`}>
+                <div className={`w-4 h-4 rounded-full transition-transform duration-300 ${isActive ? 'translate-x-4 bg-[#0a0a12]' : 'translate-x-0 bg-white/40'}`} />
               </div>
             </div>
-            <button disabled={isSubmitting} className="w-full mt-6 bg-white text-black hover:bg-zinc-200 py-4 rounded-2xl font-semibold transition">
-              추가하기
+            <button disabled={isSubmitting} className="w-full mt-4 bg-gradient-to-br from-[var(--accent)] to-[var(--accent-deep)] text-[#0a0a12] hover:brightness-110 hover:shadow-[0_4px_20px_var(--accent-glow)] py-3 rounded-xl font-semibold text-sm transition-all duration-300 active:scale-[0.98] disabled:opacity-50">
+              추가
             </button>
           </form>
         </div>
       </div>
 
-      <div className="lg:col-span-8 flex flex-col gap-5">
-        <div className="flex items-center justify-between px-2">
-          <div className="flex items-center gap-3">
-            <h2 className="text-lg font-semibold text-white">추적할 소스 계정 목록 (source_accounts)</h2>
-            <span className="text-xs font-semibold bg-white/10 text-zinc-300 px-3 py-1.5 rounded-full">{sources.length}</span>
+      <div className="lg:col-span-8 flex flex-col gap-4">
+        <div className="flex items-center justify-between px-1">
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-semibold text-white">소스 계정</h2>
+            <span className="text-[10px] font-bold bg-[var(--accent-soft)] text-[var(--accent)] px-2 py-1 rounded-md">{displayedSources.length}</span>
           </div>
           <button
             onClick={async () => {
               try {
-                const activeSources = sources.filter(s => s.isActive);
+                const activeSources = displayedSources.filter(s => s.isActive);
                 if (activeSources.length === 0) {
-                  alert("수집할 활성 타겟 계정이 없습니다. 토글을 켜주세요.");
+                  alert("수집할 활성 타겟 계정이 없습니다.");
                   return;
                 }
 
-                alert("인스타그램 실 데이터 수집 및 AI 분석을 시작합니다. 계정당 약 10~30초 소요될 수 있습니다. (창을 닫지 마세요)");
+                alert("인스타그램 데이터 수집 및 AI 분석을 시작합니다. 계정당 약 10~30초 소요됩니다.");
 
                 let count = 0;
                 for (const account of activeSources) {
@@ -545,7 +708,7 @@ function SourcesTab() {
                     const scrapeData = await scrapeRes.json();
 
                     if (!scrapeData.success || !scrapeData.posts || scrapeData.posts.length === 0) {
-                      console.warn(`[${account.accountName}] 수집 실패 또는 새 게시물 없음:`, scrapeData.error || scrapeData.warning);
+                      console.warn(`[${account.accountName}] 수집 실패:`, scrapeData.error || scrapeData.warning);
                       continue;
                     }
 
@@ -560,7 +723,7 @@ function SourcesTab() {
                     }
 
                     if (newPosts.length === 0) {
-                      console.log(`[${account.accountName}] 최근 게시물 모두 이미 수집 및 분석되었습니다. (중복 방지) 건너뜁니다.`);
+                      console.log(`[${account.accountName}] 모두 이미 수집됨. 건너뜁니다.`);
                       continue;
                     }
 
@@ -573,9 +736,6 @@ function SourcesTab() {
                     const aiData = await aiRes.json();
                     if (aiData.success && aiData.data) {
                       parsedInfo = aiData.data;
-                      if (parsedInfo.chosenIndex === -1) {
-                        console.warn(`[${account.accountName}] AI가 새로운 글 중에 공연 글이 없다고 판단했습니다. 무시되지만 임시로 0번(새로운 최신글)을 표시합니다.`);
-                      }
                     }
 
                     const bestIndex = (parsedInfo.chosenIndex !== undefined && parsedInfo.chosenIndex !== -1) ? parsedInfo.chosenIndex : 0;
@@ -592,54 +752,85 @@ function SourcesTab() {
                     }
 
                     if (parsedInfo.chosenIndex !== -1) {
-                      await addDoc(collection(db, "candidate_events"), {
-                        rawPostId: targetRawPostId,
-                        sourceAccountId: account.id,
-                        sourceAccountName: account.accountName,
-                        instaLink: realPost.instaLink, caption: realPost.caption, posterUrl: realPost.posterUrl,
-                        parsedTitle: parsedInfo.title || "", parsedDate: parsedInfo.date || "", parsedTime: parsedInfo.time || "",
-                        parsedVenue: parsedInfo.venueName || "", parsedArtists: parsedInfo.artistNames || "", parsedTicket: parsedInfo.ticketUrl || "", parsedPrice: parsedInfo.price || "",
-                        confidence: 0.9, notes: "Apify Real Crawl + GPT AI", createdAt: serverTimestamp()
-                      });
-                    } else {
-                      console.log(`[${account.accountName}] 공연 포스터 아님으로 판별되어 큐 상신을 생략합니다.`);
+                      // 자동 등록 vs 승인 큐 분기
+                      const isComplete = !!(parsedInfo.title && parsedInfo.date && parsedInfo.venueName);
+
+                      if (isComplete) {
+                        // 중복 체크
+                        const eventsSnap = await getDocs(collection(db, "events"));
+                        const existingEvents = eventsSnap.docs.map(d => ({ id: d.id, ...d.data() } as EventItem));
+                        const normalizedParsedDate = adminNormalizeDate(parsedInfo.date);
+                        const isDuplicate = existingEvents.some(ev => {
+                          const sameDateAndVenue =
+                            adminNormalizeDate(ev.date) === normalizedParsedDate &&
+                            normalizeConcertTitle(ev.venueName || "") === normalizeConcertTitle(parsedInfo.venueName) &&
+                            normalizeConcertTitle(ev.venueName || "").length > 0;
+                          return sameDateAndVenue && areSimilarTitles(ev.title || "", parsedInfo.title);
+                        });
+
+                        if (!isDuplicate) {
+                          await addDoc(collection(db, "events"), {
+                            title: parsedInfo.title,
+                            date: parsedInfo.date,
+                            time: parsedInfo.time || "",
+                            venueName: parsedInfo.venueName,
+                            artistNames: parsedInfo.artistNames || "",
+                            sourceUrl: parsedInfo.ticketUrl || "",
+                            instagramUrl: realPost.instaLink || "",
+                            price: parsedInfo.price || "",
+                            createdAt: serverTimestamp(),
+                            autoPublished: true,
+                          });
+                        }
+                      } else {
+                        await addDoc(collection(db, "candidate_events"), {
+                          rawPostId: targetRawPostId,
+                          sourceAccountId: account.id,
+                          sourceAccountName: account.accountName,
+                          instaLink: realPost.instaLink, caption: realPost.caption, posterUrl: realPost.posterUrl,
+                          parsedTitle: parsedInfo.title || "", parsedDate: parsedInfo.date || "", parsedTime: parsedInfo.time || "",
+                          parsedVenue: parsedInfo.venueName || "", parsedArtists: parsedInfo.artistNames || "", parsedTicket: parsedInfo.ticketUrl || "", parsedPrice: parsedInfo.price || "",
+                          confidence: 0.9, notes: "수동 수집 + GPT AI", createdAt: serverTimestamp()
+                        });
+                      }
                     }
 
                     await updateDoc(doc(db, "source_accounts", account.id), { lastFetchedAt: serverTimestamp() });
                     count++;
                   } catch (accountError) {
-                    console.error(`[${account.accountName}] 개별 수집 에러:`, accountError);
+                    console.error(`[${account.accountName}] 에러:`, accountError);
                   }
                 }
-                alert(`${activeSources.length}개의 타겟 중 ${count}개의 계정에서 성공적으로 새 포스터 정보를 추출했습니다!\n[후보 AI 검수 큐] 탭을 확인해주세요.`);
+                alert(`${activeSources.length}개 타겟 중 ${count}개에서 성공. [승인 대기] 탭과 [공연 일정] 탭을 확인하세요.`);
               } catch (e) {
                 console.error(e);
-                alert("시스템 에러 발동: " + e);
+                alert("시스템 에러: " + e);
               }
             }}
-            className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 px-4 py-2 rounded-xl text-xs font-bold transition-all border border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.1)]"
+            className="text-[11px] font-semibold text-[var(--muted)] hover:text-white px-3 py-1.5 rounded-lg border border-[var(--line)] hover:border-[var(--accent-border)] transition-all duration-200 active:scale-95"
           >
-            🔥 실데이터 자동 수집 + AI파싱 실행
+            ⚡ 수동 수집 실행
           </button>
         </div>
 
-        {sources.length === 0 ? (
-          <div className="bg-[#121212] border border-white/5 rounded-[2rem] p-16 text-center flex flex-col items-center justify-center">
-            <p className="text-zinc-500 font-medium">등록된 추적 계정이 없습니다.</p>
+        {displayedSources.length === 0 ? (
+          <div className="bg-[var(--panel)] border border-[var(--line)] rounded-2xl p-16 text-center">
+            <p className="text-[var(--muted)] text-sm">등록된 계정이 없습니다.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {sources.map(s => (
-              <div key={s.id} className={`flex flex-col justify-between p-6 rounded-3xl border transition-all ${s.isActive ? "bg-[#121212] border-white/5 hover:border-white/10" : "bg-black border-transparent opacity-60 grayscale"}`}>
-                <div className="flex items-start justify-between mb-8">
-                  <div className={`px-3 py-1.5 rounded-lg text-xs font-bold tracking-wide ${s.category === '공연장' ? 'bg-blue-500/10 text-blue-400' : s.category === '밴드' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-purple-500/10 text-purple-400'}`}>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {displayedSources.map(s => (
+              <div key={s.id} className={`flex flex-col justify-between p-5 rounded-2xl border transition-all hover-card ${s.isActive ? "bg-[var(--panel)] border-[var(--line)]" : "bg-[var(--bg)] border-white/[0.03] opacity-50"}`}>
+                <div className="flex items-start justify-between mb-6">
+                  <span className="px-2 py-1 rounded-md text-[10px] font-bold bg-[var(--accent-soft)] text-[var(--accent)]">
                     {s.category}
-                  </div>
+                  </span>
+                  {s.isActive && <div className="live-dot" />}
                 </div>
-                <h3 className="font-semibold text-white text-lg mb-6">@{s.accountName}</h3>
-                <div className="flex gap-2">
-                  <button onClick={() => toggle(s.id, s.isActive)} className="flex-1 py-3 bg-white/5 hover:bg-white/10 text-zinc-300 rounded-2xl text-xs font-semibold transition">{s.isActive ? "정지" : "재개"}</button>
-                  <button onClick={() => del(s.id)} className="flex-1 py-3 bg-red-500/5 hover:bg-red-500/10 text-red-400 rounded-2xl text-xs font-semibold transition">삭제</button>
+                <h3 className="font-semibold text-white mb-5">@{s.accountName}</h3>
+                <div className="flex gap-2 pt-3 border-t border-[var(--line)]">
+                  <button onClick={() => toggle(s.id, s.isActive)} className="flex-1 py-2.5 bg-white/5 hover:bg-[var(--accent-soft)] text-[var(--muted)] hover:text-[var(--accent)] rounded-xl text-[11px] font-semibold transition-all duration-200 active:scale-95">{s.isActive ? "정지" : "재개"}</button>
+                  <button onClick={() => del(s.id)} className="flex-1 py-2.5 bg-white/5 hover:bg-red-500/10 text-white/30 hover:text-red-400 rounded-xl text-[11px] font-semibold transition-all duration-200 active:scale-95">삭제</button>
                 </div>
               </div>
             ))}
@@ -650,9 +841,9 @@ function SourcesTab() {
   );
 }
 
-// ----------------------------------------------------------------------
-// [Tab 3] CandidatesTab (원문 적재 및 AI 심사 큐)
-// ----------------------------------------------------------------------
+// ──────────────────────────────────────────────────
+// [Tab 3] CandidatesTab — onSnapshot 유지 + 낙관적 반려/승인
+// ──────────────────────────────────────────────────
 function CandidatesTab() {
   const [candidates, setCandidates] = useState<CandidateEvent[]>([]);
 
@@ -671,11 +862,91 @@ function CandidatesTab() {
   const [apPrice, setApPrice] = useState("");
   const [isApproving, setIsApproving] = useState(false);
 
+  // Optimistic UI: 반려/승인 시 즉시 목록에서 제거
+  const [pendingRemoveIds, setPendingRemoveIds] = useState<Set<string>>(new Set());
+
   useEffect(() => {
     return onSnapshot(query(collection(db, "candidate_events")), snap =>
       setCandidates(snap.docs.map(d => ({ id: d.id, ...d.data() } as CandidateEvent)))
     );
   }, []);
+
+  // 자동 승인: 필수 정보(제목+날짜+장소)가 모두 있는 후보는 자동으로 events에 등록
+  const [autoApproveRan, setAutoApproveRan] = useState(false);
+  useEffect(() => {
+    if (autoApproveRan || candidates.length === 0) return;
+
+    const autoApprove = async () => {
+      setAutoApproveRan(true);
+      try {
+        // 기존 events 로드 (중복 체크용)
+        const eventsSnap = await getDocs(collection(db, "events"));
+        const existingEvents = eventsSnap.docs.map(d => ({ id: d.id, ...d.data() } as EventItem));
+
+        let autoCount = 0;
+        for (const can of candidates) {
+          // 과거 날짜 후보는 삭제
+          if (adminIsPastDate(can.parsedDate)) {
+            await deleteDoc(doc(db, "candidate_events", can.id));
+            continue;
+          }
+
+          // 필수 정보: 제목+날짜만 있으면 자동 등록 (장소 없어도 OK)
+          const hasTitle = !!can.parsedTitle;
+          const hasDate = !!can.parsedDate;
+          if (!hasTitle || !hasDate) continue;
+
+          // 중복 체크: 같은 날짜 + 유사 제목
+          const normalizedDate = adminNormalizeDate(can.parsedDate);
+          const isDuplicate = existingEvents.some(ev => {
+            const sameDate = adminNormalizeDate(ev.date) === normalizedDate;
+            return sameDate && areSimilarTitles(ev.title || "", can.parsedTitle || "");
+          });
+
+          if (isDuplicate) {
+            // 중복이면 candidate에서 제거
+            await deleteDoc(doc(db, "candidate_events", can.id));
+            continue;
+          }
+
+          // events에 자동 등록
+          await addDoc(collection(db, "events"), {
+            title: can.parsedTitle,
+            date: can.parsedDate,
+            time: can.parsedTime || "",
+            venueName: can.parsedVenue,
+            artistNames: can.parsedArtists || "",
+            sourceUrl: can.parsedTicket || "",
+            instagramUrl: can.instaLink || "",
+            price: can.parsedPrice || "",
+            createdAt: serverTimestamp(),
+            autoPublished: true,
+          });
+
+          // candidate에서 제거
+          await deleteDoc(doc(db, "candidate_events", can.id));
+
+          // 중복 방지를 위해 방금 등록한 것도 목록에 추가
+          existingEvents.push({
+            id: "auto-" + can.id,
+            title: can.parsedTitle,
+            date: can.parsedDate,
+            venueName: can.parsedVenue,
+          } as EventItem);
+
+          autoCount++;
+        }
+
+        if (autoCount > 0) {
+          console.log(`[자동 승인] ${autoCount}개 공연이 자동 발행되었습니다.`);
+        }
+      } catch (err) {
+        console.error("[자동 승인 에러]", err);
+      }
+    };
+
+    autoApprove();
+  }, [candidates, autoApproveRan]);
 
   const handleInject = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -693,13 +964,13 @@ function CandidatesTab() {
           if (data.success && data.data) {
             parsedInfo = data.data;
           } else {
-            console.warn("AI 파싱 실패/오류:", data.error);
+            console.warn("AI 파싱 실패:", data.error);
             if (data.error && data.error.includes("OPENAI_API_KEY")) {
-              alert("AI 파싱 기능 사용을 위해 환경변수(.env.local)에 OPENAI_API_KEY를 설정해야 합니다. \n일단 텍스트 원본만 빈칸 없이 적재됩니다.");
+              alert("AI 파싱 기능에 OPENAI_API_KEY가 필요합니다.");
             }
           }
         } catch (apiErr) {
-          console.error("API 연동 에러", apiErr);
+          console.error("API 에러", apiErr);
         }
       }
 
@@ -747,14 +1018,28 @@ function CandidatesTab() {
       setInstaLink(""); setCaption(""); setPosterUrl("");
     } catch (err) {
       console.error(err);
+      alert("수동 입력 처리에 실패했습니다.");
     } finally {
       setIsInjecting(false);
     }
   };
 
   const handleReject = async (id: string) => {
-    if (window.confirm("이 후보를 반려하여 대기열에서 삭제하시겠습니까? (원문은 보존됩니다)")) {
+    if (!window.confirm("이 후보를 반려하시겠습니까?")) return;
+
+    // 낙관적 반려: 즉시 목록에서 숨김
+    setPendingRemoveIds((prev) => new Set(prev).add(id));
+    try {
       await deleteDoc(doc(db, "candidate_events", id));
+    } catch (err) {
+      console.error("반려 실패:", err);
+      alert("반려에 실패했습니다. 항목이 복원됩니다.");
+    } finally {
+      setPendingRemoveIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     }
   };
 
@@ -786,7 +1071,7 @@ function CandidatesTab() {
 
       if (duplicate) {
         const confirmed = window.confirm(
-          `⚠️ 중복 감지: "${duplicate.title}" 공연이 같은 날짜·장소에 이미 등록되어 있습니다.\n한국어/영어로 같은 공연이 중복 등록되는 경우일 수 있습니다.\n\n그래도 등록하시겠습니까?`
+          `⚠️ 중복 감지: "${duplicate.title}" 이(가) 이미 같은 날짜·장소에 등록되어 있습니다.\n\n그래도 등록하시겠습니까?`
         );
         if (!confirmed) {
           setIsApproving(false);
@@ -794,21 +1079,38 @@ function CandidatesTab() {
         }
       }
 
-      await addDoc(collection(db, "events"), {
-        title: apTitle,
-        date: apDate,
-        time: apTime,
-        venueName: apVenue,
-        artistNames: apArtists,
-        sourceUrl: apTicket,
-        instagramUrl: approvingItem.instaLink || "",
-        price: apPrice,
-        createdAt: serverTimestamp(),
-      });
-      await deleteDoc(doc(db, "candidate_events", approvingItem.id));
+      // 낙관적 승인: 모달을 닫고 목록에서 즉시 제거
+      const approvedId = approvingItem.id;
+      const instaLinkOfItem = approvingItem.instaLink || "";
+      setPendingRemoveIds((prev) => new Set(prev).add(approvedId));
       setApprovingItem(null);
+
+      try {
+        await addDoc(collection(db, "events"), {
+          title: apTitle,
+          date: apDate,
+          time: apTime,
+          venueName: apVenue,
+          artistNames: apArtists,
+          sourceUrl: apTicket,
+          instagramUrl: instaLinkOfItem,
+          price: apPrice,
+          createdAt: serverTimestamp(),
+        });
+        await deleteDoc(doc(db, "candidate_events", approvedId));
+      } catch (err) {
+        console.error("승인 발행 실패:", err);
+        alert("승인 발행에 실패했습니다. 항목이 복원됩니다.");
+      } finally {
+        setPendingRemoveIds((prev) => {
+          const next = new Set(prev);
+          next.delete(approvedId);
+          return next;
+        });
+      }
     } catch (err) {
       console.error(err);
+      alert("승인 처리 중 오류가 발생했습니다.");
     } finally {
       setIsApproving(false);
     }
@@ -816,115 +1118,135 @@ function CandidatesTab() {
 
   return (
     <>
+      {/* ─── Approve Modal ─── */}
       {approvingItem && (
-        <div className="fixed inset-0 z-50 bg-[#0a0a0a]/90 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
-          <div className="bg-[#121212] border border-white/10 w-full max-w-2xl rounded-[2rem] p-8 shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar">
-            <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
-              <span className="text-amber-500">✅</span> AI 분석 보고서 최종 승인 발행
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-[var(--bg-elevated)] border border-[var(--line-strong)] w-full max-w-xl rounded-2xl p-6 max-h-[90vh] overflow-y-auto custom-scrollbar shadow-[0_24px_80px_rgba(0,0,0,0.6)]">
+            <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)]" />
+              승인 발행
             </h2>
-            <div className="mb-6 p-5 bg-black/40 rounded-2xl max-h-32 overflow-y-auto custom-scrollbar text-xs text-zinc-500 border border-white/5 font-mono leading-relaxed">
-              <span className="text-zinc-300 block mb-2 font-bold font-sans">원문 캡션 참고:</span>
-              {approvingItem.caption || "수집된 캡션 기록이 없습니다."}
+            <div className="mb-4 p-3 bg-white/[0.03] rounded-xl max-h-24 overflow-y-auto custom-scrollbar text-[11px] text-[var(--muted)] border border-[var(--line)] leading-relaxed">
+              <span className="text-[var(--text-secondary)] block mb-1 font-semibold">원문 참고:</span>
+              {approvingItem.caption || "캡션 없음"}
             </div>
 
-            <form onSubmit={handleApprove} className="space-y-4">
+            <form onSubmit={handleApprove} className="space-y-3">
               <Input label="공연 제목 (필수)" value={apTitle} onChange={setApTitle} required />
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-3">
                 <Input label="날짜" value={apDate} onChange={setApDate} />
                 <Input label="시간" value={apTime} onChange={setApTime} />
               </div>
               <Input label="장소" value={apVenue} onChange={setApVenue} />
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-3">
                 <Input label="아티스트" value={apArtists} onChange={setApArtists} />
-                <Input label="티켓 가격" value={apPrice} onChange={setApPrice} />
+                <Input label="가격" value={apPrice} onChange={setApPrice} />
               </div>
-              <Input label="예매처 링크 (또는 안내사항)" value={apTicket} onChange={setApTicket} />
+              <Input label="예매처 링크" value={apTicket} onChange={setApTicket} />
 
-              <div className="pt-8 flex gap-3">
-                <button disabled={isApproving} className="flex-1 bg-white text-black hover:bg-zinc-200 font-bold py-4 rounded-2xl transition shadow-md">정식 리스트로 즉시 발행</button>
-                <button type="button" onClick={() => setApprovingItem(null)} className="px-8 bg-white/5 border border-white/5 text-zinc-400 hover:text-white font-medium py-4 rounded-2xl transition">확인 취소</button>
+              <div className="pt-4 flex gap-3">
+                <button disabled={isApproving} className="flex-1 bg-gradient-to-br from-[var(--accent)] to-[var(--accent-deep)] text-[#0a0a12] hover:brightness-110 hover:shadow-[0_4px_20px_var(--accent-glow)] font-bold py-3 rounded-xl text-sm transition-all duration-300 active:scale-[0.98] disabled:opacity-50">발행</button>
+                <button type="button" onClick={() => setApprovingItem(null)} className="px-6 border border-[var(--line-strong)] text-[var(--muted)] hover:text-white hover:border-[var(--accent-border)] font-medium py-3 rounded-xl text-sm transition-all duration-200 active:scale-95">취소</button>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-10">
-        <div className="lg:col-span-4 flex flex-col gap-6 self-start lg:sticky lg:top-8 max-h-[calc(100vh-4rem)] overflow-y-auto px-1 pb-4 custom-scrollbar">
-          <div className="bg-[#121212] border border-white/5 rounded-[2rem] p-7 md:p-8 shadow-2xl relative">
-            <h2 className="text-lg font-semibold mb-6 text-white flex items-center gap-2">자동 파싱 시뮬레이터</h2>
-            <p className="text-xs text-zinc-500 mb-6 font-medium leading-relaxed">크롤러 대신 수동으로 링크를 제출하면, 시스템 내부의 인공지능(AI)이 캡션을 분석하여 핵심 정보를 요약 보고하도록 세팅되었습니다.</p>
-            <form onSubmit={handleInject} className="space-y-4">
-              <Input label="인스타 게시물 원본 링크" value={instaLink} onChange={setInstaLink} required />
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8">
+        {/* ─── Inject Form ─── */}
+        <div className="lg:col-span-4 flex flex-col gap-4 self-start lg:sticky lg:top-8 max-h-[calc(100vh-4rem)] overflow-y-auto custom-scrollbar">
+          <div className="bg-[var(--panel)] border border-[var(--line)] rounded-2xl p-6 relative">
+            <div className="absolute top-0 inset-x-0 h-px bg-white/10" />
+            <h2 className="text-sm font-semibold mb-4 text-white">수동 입력</h2>
+            <p className="text-[11px] text-[var(--muted)] mb-5 leading-relaxed">링크를 넣으면 AI가 캡션을 분석합니다.</p>
+            <form onSubmit={handleInject} className="space-y-3">
+              <Input label="인스타 링크" value={instaLink} onChange={setInstaLink} required />
               <div>
-                <label className="block text-xs font-medium text-zinc-500 mb-2 pl-1">분석할 원문 캡션 복사붙여넣기</label>
-                <textarea value={caption} onChange={e => setCaption(e.target.value)} placeholder="이 텍스트를 AI가 분석하여 우측 항목으로 자동 추출합니다." className="w-full bg-white/5 border border-transparent focus:border-white/10 rounded-2xl px-5 py-4 text-sm text-white h-32 resize-none outline-none custom-scrollbar" />
+                <label className="block text-[11px] font-medium text-[var(--muted)] mb-1.5 pl-0.5">캡션</label>
+                <textarea value={caption} onChange={e => setCaption(e.target.value)} placeholder="AI가 분석할 원문" className="w-full bg-white/5 border border-[var(--line)] focus:border-[var(--accent-border)] rounded-xl px-4 py-3 text-xs text-white h-28 resize-none outline-none custom-scrollbar placeholder:text-white/20 transition-colors" />
               </div>
-              <button disabled={isInjecting} className="w-full mt-4 bg-white/10 text-white hover:bg-white/20 py-4 rounded-2xl font-bold transition shadow-sm">AI 분석 후 큐에 밀어넣기</button>
+              <button disabled={isInjecting} className="w-full bg-[var(--accent-soft)] text-[var(--accent)] hover:bg-[var(--accent)] hover:text-[#0a0a12] py-3 rounded-xl font-semibold text-sm transition-all duration-300 active:scale-[0.98] disabled:opacity-50">분석 후 큐에 추가</button>
             </form>
           </div>
         </div>
 
-        <div className="lg:col-span-8 flex flex-col gap-5">
-          <div className="flex items-center justify-between px-2">
-            <h2 className="text-lg font-semibold text-white">AI 자동 파싱 큐 대기열 (candidate_events)</h2>
-            <span className="text-xs font-bold bg-amber-500/20 text-amber-500 px-3 py-1.5 rounded-full">{candidates.length}</span>
-          </div>
+        {/* ─── Candidate List ─── */}
+        <div className="lg:col-span-8 flex flex-col gap-4">
           {(() => {
-            const visibleCandidates = candidates.filter(can => !adminIsPastDate(can.parsedDate));
-            return visibleCandidates.length === 0 ? (
-            <div className="bg-[#121212] border border-white/5 rounded-[2rem] p-16 text-center flex flex-col items-center justify-center">
-              <p className="text-zinc-500 font-medium">현재 AI 심사 대기 중인 항목이 없습니다.</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {visibleCandidates.map(can => (
-                <div key={can.id} className="bg-[#121212] border border-amber-500/20 rounded-3xl p-6 flex flex-col gap-4 group hover:border-amber-500/50 transition-colors">
-                  <div className="flex-1">
-                    <a href={can.instaLink} target="_blank" rel="noreferrer" className="text-xs font-medium text-blue-400 hover:text-blue-300 underline underline-offset-4 decoration-blue-500/30 inline-block mb-3">게시물 원본 열기 ↗</a>
-
-                    {can.posterUrl && (
-                      <a href={can.posterUrl} target="_blank" rel="noreferrer" className="block mb-4 h-48 w-full rounded-2xl overflow-hidden bg-black/40 border border-white/5 relative group shrink-0">
-                        <img
-                          src={can.posterUrl}
-                          alt="포스터 이미지"
-                          referrerPolicy="no-referrer"
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                          onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.parentElement!.style.display = 'none'; }}
-                        />
-                        <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <span className="text-xs font-bold text-white bg-black/60 px-3 py-1.5 rounded-full backdrop-blur-sm">이미지 원본 보기</span>
-                        </div>
-                      </a>
-                    )}
-
-                    <div className="text-xs text-zinc-500 line-clamp-3 leading-relaxed bg-black/40 p-4 rounded-xl mb-4 italic custom-scrollbar">"{can.caption || "내용 없음"}"</div>
-
-                    <div className="bg-gradient-to-br from-amber-500/5 to-amber-500/10 border border-amber-500/20 rounded-2xl p-4 space-y-2 relative overflow-hidden">
-                      <div className="absolute top-0 right-0 px-3 py-1.5 bg-amber-500 text-black text-[10px] font-black rounded-bl-xl tracking-wide">AI REPORT</div>
-                      <p className="font-bold text-amber-400 mb-2 mt-1 flex items-center gap-1.5"><span className="text-sm">🤖</span> 데이터 분석 결과</p>
-
-                      {can.parsedTitle && <p className="text-sm text-zinc-100 truncate flex gap-2"><span className="w-12 shrink-0 text-zinc-500 font-medium text-xs pt-0.5">제목</span> <span className="font-bold text-amber-100 truncate">{can.parsedTitle}</span></p>}
-                      {(can.parsedDate || can.parsedTime) && <p className="text-sm text-zinc-100 truncate flex gap-2"><span className="w-12 shrink-0 text-zinc-500 font-medium text-xs pt-0.5">일시</span> <span>{can.parsedDate} {can.parsedTime}</span></p>}
-                      {can.parsedVenue && <p className="text-sm text-zinc-100 truncate flex gap-2"><span className="w-12 shrink-0 text-zinc-500 font-medium text-xs pt-0.5">장소</span> <span>{can.parsedVenue}</span></p>}
-                      {can.parsedArtists && <p className="text-sm text-zinc-100 truncate flex gap-2"><span className="w-12 shrink-0 text-zinc-500 font-medium text-xs pt-0.5">출연</span> <span className="text-emerald-300/80">{can.parsedArtists}</span></p>}
-                      {can.parsedTicket && <p className="text-sm text-zinc-100 truncate flex gap-2"><span className="w-12 shrink-0 text-zinc-500 font-medium text-xs pt-0.5">예매</span> <span className="text-blue-300/80 underline decoration-blue-500/30 truncate">{can.parsedTicket}</span></p>}
-                      {can.parsedPrice && <p className="text-sm text-zinc-100 truncate flex gap-2"><span className="w-12 shrink-0 text-zinc-500 font-medium text-xs pt-0.5">가격</span> <span className="text-pink-300/80 font-bold">{can.parsedPrice}</span></p>}
-
-                      {(!can.parsedTitle && !can.parsedDate && !can.parsedVenue && !can.parsedArtists) && (
-                        <p className="text-xs text-zinc-500 mt-2">AI가 내용을 분석하지 못했거나 연결되지 않았습니다.</p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex gap-2 mt-2 pt-4 border-t border-white/5">
-                    <button onClick={() => openMod(can)} className="flex-1 py-3.5 bg-amber-500 text-black hover:bg-amber-400 rounded-2xl text-xs font-bold transition shadow-[0_0_15px_rgba(245,158,11,0.2)]">AI 요약본 기반으로 승인결재</button>
-                    <button onClick={() => handleReject(can.id)} className="px-5 py-3.5 bg-white/5 text-zinc-400 hover:text-white hover:bg-white/10 rounded-2xl text-xs font-semibold transition">반려</button>
-                  </div>
+            const visibleCandidates = candidates
+              .filter(can => !pendingRemoveIds.has(can.id))
+              .filter(can => !adminIsPastDate(can.parsedDate))
+              .sort((a, b) => {
+                const getScore = (c: CandidateEvent) => {
+                  let score = 0;
+                  if (c.parsedTitle) score += 2;
+                  if (c.parsedDate) score += 2;
+                  if (c.parsedVenue) score += 1;
+                  if (c.parsedArtists) score += 1;
+                  if (c.parsedPrice) score += 1;
+                  if (c.parsedTime) score += 1;
+                  return score;
+                };
+                return getScore(b) - getScore(a);
+              });
+            return (
+              <>
+                <div className="flex items-center gap-2 px-1">
+                  <h2 className="text-sm font-semibold text-white">승인 대기</h2>
+                  <span className="text-[10px] font-bold bg-[var(--accent-soft)] text-[var(--accent)] px-2 py-1 rounded-md">{visibleCandidates.length}</span>
                 </div>
-              ))}
-            </div>
-          );
+                {visibleCandidates.length === 0 ? (
+                  <div className="bg-[var(--panel)] border border-[var(--line)] rounded-2xl p-16 text-center">
+                    <p className="text-[var(--muted)] text-sm">대기 중인 항목이 없습니다.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {visibleCandidates.map(can => (
+                      <div key={can.id} className="bg-[var(--panel)] border border-[var(--line)] rounded-2xl p-5 flex flex-col gap-3 hover-card transition-all">
+                        <div className="flex-1">
+                          <a href={can.instaLink} target="_blank" rel="noreferrer" className="text-[11px] font-medium text-[var(--muted)] hover:text-[var(--accent)] underline underline-offset-4 decoration-white/10 inline-block mb-2 transition-colors">원본 ↗</a>
+
+                          {can.posterUrl && (
+                            <a href={can.posterUrl} target="_blank" rel="noreferrer" className="block mb-3 h-40 w-full rounded-xl overflow-hidden bg-white/[0.03] border border-[var(--line)] relative group shrink-0">
+                              <img
+                                src={can.posterUrl}
+                                alt="포스터"
+                                referrerPolicy="no-referrer"
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.parentElement!.style.display = 'none'; }}
+                              />
+                            </a>
+                          )}
+
+                          <div className="text-[11px] text-white/25 line-clamp-2 leading-relaxed bg-white/[0.03] p-3 rounded-lg mb-3">{can.caption || "내용 없음"}</div>
+
+                          {/* AI 분석 결과 */}
+                          <div className="bg-white/[0.03] border border-[var(--line)] rounded-xl p-3 space-y-1.5">
+                            <p className="text-[10px] font-bold text-[var(--accent)] uppercase tracking-wider mb-2">AI 분석</p>
+
+                            {can.parsedTitle && <p className="text-xs text-white/80 truncate flex gap-2"><span className="w-8 shrink-0 text-white/20 font-medium">제목</span> <span className="font-semibold text-white truncate">{can.parsedTitle}</span></p>}
+                            {(can.parsedDate || can.parsedTime) && <p className="text-xs text-white/70 truncate flex gap-2"><span className="w-8 shrink-0 text-white/20 font-medium">일시</span> <span>{can.parsedDate} {can.parsedTime}</span></p>}
+                            {can.parsedVenue && <p className="text-xs text-white/70 truncate flex gap-2"><span className="w-8 shrink-0 text-white/20 font-medium">장소</span> <span>{can.parsedVenue}</span></p>}
+                            {can.parsedArtists && <p className="text-xs text-white/70 truncate flex gap-2"><span className="w-8 shrink-0 text-white/20 font-medium">출연</span> <span>{can.parsedArtists}</span></p>}
+                            {can.parsedPrice && <p className="text-xs text-white font-semibold truncate flex gap-2"><span className="w-8 shrink-0 text-white/20 font-medium">가격</span> <span>{can.parsedPrice}</span></p>}
+
+                            {(!can.parsedTitle && !can.parsedDate && !can.parsedVenue) && (
+                              <p className="text-[11px] text-white/20">AI 분석 결과 없음</p>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex gap-2 pt-3 border-t border-[var(--line)]">
+                          <button onClick={() => openMod(can)} className="flex-1 py-2.5 bg-gradient-to-br from-[var(--accent)] to-[var(--accent-deep)] text-[#0a0a12] hover:brightness-110 rounded-xl text-[11px] font-bold transition-all duration-200 active:scale-95">승인</button>
+                          <button onClick={() => handleReject(can.id)} className="px-4 py-2.5 bg-white/5 text-white/30 hover:text-red-400 hover:bg-red-500/10 rounded-xl text-[11px] font-semibold transition-all duration-200 active:scale-95">반려</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            );
           })()}
         </div>
       </div>
@@ -932,16 +1254,25 @@ function CandidatesTab() {
   );
 }
 
-// ----------------------------------------------------------------------
-// Reusable Input Component
-// ----------------------------------------------------------------------
-function Input({ label, value, onChange, placeholder, type = "text", required = false }: any) {
+// ──────────────────────────────────────────────────
+// Reusable Input
+// ──────────────────────────────────────────────────
+interface InputProps {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  type?: string;
+  required?: boolean;
+}
+
+function Input({ label, value, onChange, placeholder, type = "text", required = false }: InputProps) {
   return (
     <div>
-      <label className="block text-xs font-medium text-zinc-500 mb-2 pl-1">{label}</label>
+      <label className="block text-[11px] font-medium text-[var(--muted)] mb-1.5 pl-0.5">{label}</label>
       <input
-        type={type} value={value} onChange={e => onChange(e.target.value)} required={required} placeholder={placeholder}
-        className="w-full bg-white/5 border border-transparent focus:border-white/10 focus:bg-white/10 rounded-2xl px-5 py-4 text-sm text-white placeholder-zinc-600 transition-all outline-none"
+        type={type} value={value} onChange={(e) => onChange(e.target.value)} required={required} placeholder={placeholder}
+        className="w-full bg-white/5 border border-[var(--line)] focus:border-[var(--accent-border)] focus:bg-white/[0.07] focus:shadow-[0_0_0_3px_var(--accent-soft)] rounded-xl px-4 py-3 text-xs text-white placeholder-white/15 transition-all duration-200 outline-none"
       />
     </div>
   );
