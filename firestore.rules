@@ -76,6 +76,14 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
+    // ─────────────────────────────────────────
+    // 3. 유저 개인 데이터 (티켓북 동기화: 본인만 읽기/쓰기)
+    //    익명 인증 포함 — request.auth.uid가 경로의 uid와 일치해야 함
+    // ─────────────────────────────────────────
+    match /users/{uid}/{document=**} {
+      allow read, write: if isAuthenticated() && request.auth.uid == uid;
+    }
+
     // 그 외 모든 컬렉션은 기본 차단
     match /{document=**} {
       allow read, write: if false;

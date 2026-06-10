@@ -13,7 +13,7 @@ export default function TicketbookPage() {
     <PageShell>
       <AppHeader
         title="나의 티켓북"
-        subtitle="저장한 공연은 끝나면 자동으로 관람 기록이 됩니다. 이 기기에 저장돼요."
+        subtitle="저장한 공연은 끝나면 자동으로 관람 기록이 됩니다."
       />
       <TicketbookView />
     </PageShell>

@@ -21,6 +21,28 @@ declare global {
 
 const DEFAULT_CENTER = { lat: 37.5559, lng: 126.9234 };
 
+// 공연장 좌표 캐시 — 한 번 검색한 좌표는 기기에 저장해 재방문 시 즉시 표시
+const COORDS_CACHE_KEY = "indieLive.venueCoords.v1";
+
+type CoordsCache = Record<string, { lat: number; lng: number }>;
+
+function loadCoordsCache(): CoordsCache {
+  try {
+    const raw = localStorage.getItem(COORDS_CACHE_KEY);
+    return raw ? (JSON.parse(raw) as CoordsCache) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveCoordsCache(cache: CoordsCache) {
+  try {
+    localStorage.setItem(COORDS_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // ignore
+  }
+}
+
 type VenueBucket = {
   venueName: string;
   events: EventItem[];
@@ -142,12 +164,15 @@ export default function MapView({
 
       const places = new window.kakao.maps.services.Places();
       const bounds = new window.kakao.maps.LatLngBounds();
+      const coordsCache = loadCoordsCache();
+      let cacheDirty = false;
       let found = 0;
       let resolved = 0;
 
       const done = () => {
         resolved += 1;
         if (resolved === venueBuckets.length) {
+          if (cacheDirty) saveCoordsCache(coordsCache);
           if (found > 0) {
             map.setBounds(bounds);
             setMapError("");
@@ -157,7 +182,35 @@ export default function MapView({
         }
       };
 
+      const addMarker = (bucket: VenueBucket, position: any) => {
+        const marker = new window.kakao.maps.Marker({ map, position });
+        markersRef.current.push(marker);
+        venuePositionsRef.current.set(bucket.venueName, position);
+        bounds.extend(position);
+        found += 1;
+
+        // 마커 클릭: 장소명 팝업 + 해당 공연장 일정 선택 + 지도 이동
+        window.kakao.maps.event.addListener(marker, "click", () => {
+          setActiveVenue(bucket.venueName);
+          infoWindow.setContent(
+            `<div style="padding:6px 12px;font-size:12px;font-weight:700;color:#111;white-space:nowrap;">${bucket.venueName}<span style="margin-left:6px;font-weight:500;color:#7c3aed;">${bucket.events.length}개 공연</span></div>`
+          );
+          infoWindow.open(map, marker);
+          map.panTo(position);
+        });
+      };
+
       venueBuckets.forEach((bucket) => {
+        const cacheKey = venueGroupKey(bucket.venueName);
+
+        // 캐시된 좌표가 있으면 검색 없이 즉시 마커 생성
+        const cached = cacheKey ? coordsCache[cacheKey] : undefined;
+        if (cached) {
+          addMarker(bucket, new window.kakao.maps.LatLng(cached.lat, cached.lng));
+          done();
+          return;
+        }
+
         const queries = venueSearchCandidates(bucket.venueName);
 
         const searchAt = (index: number) => {
@@ -172,22 +225,14 @@ export default function MapView({
 
             if (status === window.kakao.maps.services.Status.OK && data?.length) {
               const place = data[0];
-              const position = new window.kakao.maps.LatLng(Number(place.y), Number(place.x));
-              const marker = new window.kakao.maps.Marker({ map, position });
-              markersRef.current.push(marker);
-              venuePositionsRef.current.set(bucket.venueName, position);
-              bounds.extend(position);
-              found += 1;
+              const lat = Number(place.y);
+              const lng = Number(place.x);
+              addMarker(bucket, new window.kakao.maps.LatLng(lat, lng));
 
-              // 마커 클릭: 장소명 팝업 + 해당 공연장 일정 선택 + 지도 이동
-              window.kakao.maps.event.addListener(marker, "click", () => {
-                setActiveVenue(bucket.venueName);
-                infoWindow.setContent(
-                  `<div style="padding:6px 12px;font-size:12px;font-weight:700;color:#111;white-space:nowrap;">${bucket.venueName}<span style="margin-left:6px;font-weight:500;color:#7c3aed;">${bucket.events.length}개 공연</span></div>`
-                );
-                infoWindow.open(map, marker);
-                map.panTo(position);
-              });
+              if (cacheKey) {
+                coordsCache[cacheKey] = { lat, lng };
+                cacheDirty = true;
+              }
 
               done();
               return;

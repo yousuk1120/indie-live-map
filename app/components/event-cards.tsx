@@ -23,7 +23,16 @@ function MetaIcon({ type }: { type: "venue" | "artist" | "price" }) {
     price: <path strokeLinecap="round" strokeLinejoin="round" d="M4 8a2 2 0 012-2h12a2 2 0 012 2v1.5a2.5 2.5 0 000 5V16a2 2 0 01-2 2H6a2 2 0 01-2-2v-1.5a2.5 2.5 0 000-5V8z" />,
   };
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} className="h-3.5 w-3.5 shrink-0 text-[var(--muted)]">
+    <svg
+      viewBox="0 0 24 24"
+      width={14}
+      height={14}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.7}
+      className="shrink-0 text-[var(--muted)]"
+      style={{ width: 14, height: 14, minWidth: 14 }}
+    >
       {paths[type]}
     </svg>
   );

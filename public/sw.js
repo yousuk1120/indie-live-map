@@ -1,7 +1,7 @@
 // Seoul Indie Live 서비스 워커
 // 페이지: 네트워크 우선(실패 시 캐시) / 정적 자원: 캐시 우선
 
-const CACHE_NAME = "indie-live-v1";
+const CACHE_NAME = "live-club-map-v2";
 
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -39,8 +39,12 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // 빌드 정적 자원 + 아이콘: 캐시 우선
-  if (url.pathname.startsWith("/_next/static/") || url.pathname.startsWith("/icons/")) {
+  // 빌드 정적 자원 + 아이콘 + 폰트: 캐시 우선
+  if (
+    url.pathname.startsWith("/_next/static/") ||
+    url.pathname.startsWith("/icons/") ||
+    url.pathname.startsWith("/fonts/")
+  ) {
     event.respondWith(
       caches.match(request).then(
         (cached) =>

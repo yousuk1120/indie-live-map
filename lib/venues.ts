@@ -60,8 +60,16 @@ export function canonicalVenueName(raw?: string): string {
   const value = (raw || "").trim().replace(/\s{2,}/g, " ");
   if (isGarbageVenue(value)) return "";
 
-  const canonical = ALIAS_LOOKUP.get(normalizeKey(value));
-  return canonical || value;
+  const key = normalizeKey(value);
+  const exact = ALIAS_LOOKUP.get(key);
+  if (exact) return exact;
+
+  // 접두 매칭: "언플러그드 홍대 지하공연장"처럼 별칭 뒤에 수식어가 붙은 변형 처리
+  for (const [aliasKey, canonical] of ALIAS_LOOKUP) {
+    if (aliasKey.length >= 4 && key.startsWith(aliasKey)) return canonical;
+  }
+
+  return value;
 }
 
 // 중복 판정/그룹핑용 키 — 별칭이 같은 공연장이면 같은 키를 반환

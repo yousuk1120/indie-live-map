@@ -13,6 +13,32 @@ import { canonicalVenueName } from "@/lib/venues";
 
 // 빌드 타임에 정적 처리 금지 — 항상 런타임에서만 실행
 export const dynamic = "force-dynamic";
+// 계정 수가 늘어도 타임아웃 나지 않도록 (Fluid Compute)
+export const maxDuration = 300;
+
+// 인스타 CDN 이미지는 서명 URL이라 며칠 뒤 만료됩니다.
+// Vercel Blob에 복사해 영구 URL로 바꿉니다 (BLOB_READ_WRITE_TOKEN 미설정 시 원본 유지).
+async function persistPosterImage(url: string): Promise<string> {
+  if (!url || !process.env.BLOB_READ_WRITE_TOKEN) return url;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return url;
+
+    const data = Buffer.from(await res.arrayBuffer());
+    if (data.length === 0 || data.length > 8 * 1024 * 1024) return url;
+
+    const { put } = await import("@vercel/blob");
+    const stored = await put(`posters/${crypto.randomUUID()}.jpg`, data, {
+      access: "public",
+      contentType: res.headers.get("content-type") || "image/jpeg",
+    });
+    return stored.url;
+  } catch (error) {
+    console.warn("[CRON] 포스터 영구화 실패 (원본 URL 유지):", error);
+    return url;
+  }
+}
 
 // Vercel Cron Job 또는 외부 스케줄러에서 GET으로 호출합니다.
 // 보안을 위해 CRON_SECRET 과 일치하는 secret 파라미터가 있어야 실행됩니다.
@@ -196,7 +222,7 @@ export async function GET(req: Request) {
             sourceUrl: parsedInfo.ticketUrl,
             instagramUrl: realPost.instaLink || "",
             price: parsedInfo.price,
-            posterUrl: realPost.posterUrl || "",
+            posterUrl: await persistPosterImage(realPost.posterUrl || ""),
             dayLineups: parsedInfo.dayLineups.map((d) => ({
               date: normalizeDateString(d.date),
               artists: d.artists,
@@ -275,6 +301,22 @@ export async function GET(req: Request) {
         console.error(`[CRON][${accountName}] 처리 중 오류:`, accountError.message);
         results.push({ accountName, status: "error", error: accountError.message });
       }
+    }
+
+    // raw_posts 무한 증식 방지: 60일 지난 원본 게시물 정리 (실행당 최대 200건)
+    try {
+      const cutoff = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+      const oldPosts = await db
+        .collection("raw_posts")
+        .where("fetchedAt", "<", cutoff)
+        .limit(200)
+        .get();
+      for (const oldDoc of oldPosts.docs) {
+        await oldDoc.ref.delete();
+      }
+      if (oldPosts.size > 0) console.log(`[CRON] 오래된 raw_posts ${oldPosts.size}건 정리 완료`);
+    } catch (cleanupError) {
+      console.warn("[CRON] raw_posts 정리 실패 (무시하고 계속):", cleanupError);
     }
 
     const summary = `${sourcesSnap.size}개 계정 순회 완료. 자동 발행 ${autoPublishCount}건, 병합 ${mergedCount}건, 승인 대기 ${newCandidateCount}건, 정보 부족 생략 ${skippedCount}건.`;

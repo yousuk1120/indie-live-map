@@ -9,8 +9,19 @@ import { useTicketbook, type TicketRecord } from "@/lib/ticketbook";
 import { EventListRow } from "./event-cards";
 
 export default function TicketbookView() {
-  const { saved, records } = useTicketbook();
+  const { saved, records, syncState, userEmail, linkWithGoogle } = useTicketbook();
   const [tab, setTab] = useState<"upcoming" | "history">("upcoming");
+  const [linking, setLinking] = useState(false);
+
+  const handleLink = async () => {
+    setLinking(true);
+    try {
+      const result = await linkWithGoogle();
+      alert(result.message);
+    } finally {
+      setLinking(false);
+    }
+  };
 
   // 통계
   const stats = useMemo(() => {
@@ -41,6 +52,37 @@ export default function TicketbookView() {
 
   return (
     <>
+      {/* ─── 동기화 상태 ─── */}
+      <section className="mb-4 animate-fade-in">
+        {syncState === "linked" ? (
+          <div className="flex items-center justify-between rounded-2xl border border-[var(--line)] bg-[var(--panel)] px-4 py-3">
+            <div className="flex items-center gap-2">
+              <span className="live-dot" />
+              <p className="text-xs text-[var(--text-secondary)]">
+                <span className="font-semibold text-white">Google 계정으로 동기화 중</span>
+                {userEmail && <span className="ml-1.5 text-[var(--muted)]">{userEmail}</span>}
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3 rounded-2xl border border-[var(--accent-border)] bg-[var(--accent-soft)] px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs leading-relaxed text-[var(--text-secondary)]">
+              <span className="font-semibold text-white">기기를 바꿔도 티켓북을 잃지 마세요.</span>
+              <br className="sm:hidden" />
+              <span className="text-[var(--muted)]"> Google 계정을 연결하면 폰과 PC가 자동 동기화됩니다.</span>
+            </p>
+            <button
+              type="button"
+              onClick={handleLink}
+              disabled={linking}
+              className="primary-btn shrink-0 text-xs disabled:opacity-50"
+            >
+              {linking ? "연결 중..." : "Google로 연결"}
+            </button>
+          </div>
+        )}
+      </section>
+
       {/* ─── 통계 카드 ─── */}
       <section className="mb-6 grid grid-cols-3 gap-2 animate-fade-in md:gap-3">
         <StatCard label="총 관람" value={`${stats.total}회`} />
