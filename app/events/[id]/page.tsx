@@ -13,6 +13,8 @@ import {
   getInstagramLink,
   toText,
 } from "@/lib/events";
+import { splitArtists } from "@/lib/event-merge";
+import { useTicketbook } from "@/lib/ticketbook";
 
 function extractExternalUrl(value?: string) {
   const raw = toText(value);
@@ -58,6 +60,8 @@ export default function EventDetailPage() {
   const [eventData, setEventData] = useState<EventItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [showTimetable, setShowTimetable] = useState(false);
+  const { isSaved, toggleSave } = useTicketbook();
 
   useEffect(() => {
     if (!eventId) return;
@@ -109,10 +113,16 @@ export default function EventDetailPage() {
   }
 
   const dayLineups = eventData.dayLineups || [];
+  const saved = isSaved(eventData.id);
 
   return (
-    <main className="relative min-h-screen overflow-x-clip bg-[var(--bg)] px-4 pb-16 pt-8 text-[var(--text)] md:px-8 md:pt-10">
+    <main className="relative min-h-screen overflow-x-clip bg-[var(--bg)] px-4 pb-32 pt-8 text-[var(--text)] md:px-8 md:pt-10">
       <div aria-hidden className="bg-aurora" />
+
+      {/* 타임테이블 이미지 전체화면 뷰어 */}
+      {showTimetable && eventData.timetableImageUrl && (
+        <TimetableViewer url={eventData.timetableImageUrl} onClose={() => setShowTimetable(false)} />
+      )}
 
       <div className="relative mx-auto max-w-4xl">
         <button type="button" onClick={() => router.back()} className="secondary-btn mb-6">
@@ -133,29 +143,18 @@ export default function EventDetailPage() {
             <InfoCard label="Ticket" value={priceLines.join("\n") || "정보 없음"} preserveLineBreak />
           </div>
 
-          {/* 날짜별 라인업 (멀티데이 페스티벌) */}
-          {dayLineups.length > 0 && (
-            <div className="mt-8">
-              <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--accent)]">
-                Day by Day Lineup
-              </p>
-              <div className="space-y-2">
-                {dayLineups.map((day) => (
-                  <div
-                    key={day.date}
-                    className="flex flex-col gap-1 rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] p-4 sm:flex-row sm:items-baseline sm:gap-4"
-                  >
-                    <span className="shrink-0 text-sm font-bold tabular-nums text-[var(--accent)]">
-                      {formatDayLabel(day.date)}
-                    </span>
-                    <span className="text-sm leading-relaxed text-[var(--text-secondary)]">{day.artists}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* 날짜별 라인업 + 나만의 라인업 선택 (멀티데이 페스티벌) */}
+          {dayLineups.length > 0 && <MyLineupBuilder event={eventData} />}
 
           <div className="mt-8 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => toggleSave(eventData)}
+              className={`secondary-btn ${saved ? "border-[var(--accent-border)] bg-[var(--accent-soft)] text-[var(--accent)]" : ""}`}
+            >
+              {saved ? "★ 저장됨" : "☆ 티켓북에 저장"}
+            </button>
+
             <a href={instagramUrl} target="_blank" rel="noreferrer" className="primary-btn">
               Instagram ↗
             </a>
@@ -165,10 +164,116 @@ export default function EventDetailPage() {
                 예매 / 안내 링크 ↗
               </a>
             ) : null}
+
+            {eventData.timetableImageUrl ? (
+              <button type="button" onClick={() => setShowTimetable(true)} className="secondary-btn">
+                🗓 타임테이블 보기
+              </button>
+            ) : null}
           </div>
         </section>
       </div>
     </main>
+  );
+}
+
+/* ─── 타임테이블 이미지 뷰어 (확대/축소 + 드래그 스크롤) ─── */
+function TimetableViewer({ url, onClose }: { url: string; onClose: () => void }) {
+  const [zoom, setZoom] = useState(1);
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-black/95 backdrop-blur-sm animate-fade-in">
+      <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3" style={{ paddingTop: "max(12px, env(safe-area-inset-top))" }}>
+        <p className="text-sm font-semibold text-white">타임테이블</p>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => setZoom((z) => Math.max(1, z - 0.5))} className="icon-btn" aria-label="축소">−</button>
+          <span className="w-10 text-center text-xs tabular-nums text-white/60">{Math.round(zoom * 100)}%</span>
+          <button type="button" onClick={() => setZoom((z) => Math.min(4, z + 0.5))} className="icon-btn" aria-label="확대">+</button>
+          <button type="button" onClick={onClose} className="icon-btn ml-2" aria-label="닫기">✕</button>
+        </div>
+      </div>
+      <div className="custom-scrollbar flex-1 overflow-auto" style={{ touchAction: "pan-x pan-y pinch-zoom" }}>
+        <img
+          src={url}
+          alt="공연 타임테이블"
+          referrerPolicy="no-referrer"
+          className="origin-top-left transition-transform duration-200"
+          style={{ transform: `scale(${zoom})`, maxWidth: zoom === 1 ? "100%" : "none" }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/* ─── 나만의 라인업 빌더 (날짜별 아티스트 선택, 기기 로컬 저장) ─── */
+function MyLineupBuilder({ event }: { event: EventItem }) {
+  const storageKey = `indieLive.mylineup.${event.id}`;
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (raw) setSelected(new Set(JSON.parse(raw)));
+    } catch {
+      // ignore
+    }
+  }, [storageKey]);
+
+  const toggle = (key: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(Array.from(next)));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
+
+  const dayLineups = event.dayLineups || [];
+
+  return (
+    <div className="mt-8">
+      <div className="mb-3 flex items-center justify-between">
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--accent)]">
+          Day by Day Lineup
+        </p>
+        <p className="text-[11px] text-[var(--muted)]">
+          아티스트를 눌러 <span className="font-semibold text-[var(--accent)]">나만의 라인업</span>을 만들어 보세요
+          {selected.size > 0 && <span className="ml-1 font-bold text-[var(--accent)]">({selected.size}팀 선택)</span>}
+        </p>
+      </div>
+      <div className="space-y-2">
+        {dayLineups.map((day) => (
+          <div key={day.date} className="rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] p-4">
+            <p className="mb-2.5 text-sm font-bold tabular-nums text-[var(--accent)]">{formatDayLabel(day.date)}</p>
+            <div className="flex flex-wrap gap-1.5">
+              {splitArtists(day.artists).map((artist) => {
+                const key = `${day.date}__${artist}`;
+                const active = selected.has(key);
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => toggle(key)}
+                    className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-all duration-200 active:scale-90 ${
+                      active
+                        ? "border-[var(--accent-border)] bg-[var(--accent)] font-bold text-[#0a0a12] shadow-[0_2px_12px_var(--accent-glow)]"
+                        : "border-[var(--line)] bg-white/5 text-[var(--text-secondary)] hover:border-[var(--accent-border)] hover:text-white"
+                    }`}
+                  >
+                    {active ? "✓ " : ""}{artist}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 

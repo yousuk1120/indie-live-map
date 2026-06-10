@@ -17,6 +17,7 @@ export type EventItem = {
   instagramUrl?: string;
   price?: string;
   posterUrl?: string;
+  timetableImageUrl?: string; // 주최측 타임테이블 이미지 (페스티벌)
   dayLineups?: DayLineup[]; // 날짜별 라인업 (페스티벌)
 };
 
@@ -295,6 +296,7 @@ export function normalizeEvent(id: string, raw: Record<string, unknown>): EventI
     instagramUrl: toText(raw.instagramUrl),
     price: toText(raw.price),
     posterUrl: toText(raw.posterUrl),
+    timetableImageUrl: toText(raw.timetableImageUrl),
     dayLineups,
   };
 }
@@ -304,6 +306,12 @@ export function venueSearchCandidates(venueName: string) {
   return Array.from(
     new Set([value, `${value} 공연장`, `${value} 라이브클럽`, `${value} 서울`, `${value} 홍대`].filter(Boolean))
   );
+}
+
+// 뷰어 공통 파이프라인: 국내 공연 → 다가오는 공연 → 중복 병합 → 시간순 정렬
+export function prepareUpcomingEvents(events: EventItem[]): EventItem[] {
+  const valid = events.filter(isKoreanEvent).filter(isFutureEvent);
+  return deduplicateEvents(valid).sort((a, b) => eventTimestamp(a) - eventTimestamp(b));
 }
 
 // ─── 남은 일수 계산 ───

@@ -28,6 +28,7 @@ type EventItem = {
   instagramUrl?: string;
   price?: string;
   posterUrl?: string;
+  timetableImageUrl?: string;
   dayLineups?: DayLineup[];
 };
 
@@ -226,6 +227,7 @@ function EventsTab() {
   const [sourceUrl, setSourceUrl] = useState("");
   const [instagramUrl, setInstagramUrl] = useState("");
   const [price, setPrice] = useState("");
+  const [timetableImageUrl, setTimetableImageUrl] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDedupRunning, setIsDedupRunning] = useState(false);
 
@@ -233,18 +235,20 @@ function EventsTab() {
   const [pendingDeleteIds, setPendingDeleteIds] = useState<Set<string>>(new Set());
   const [optimisticEdits, setOptimisticEdits] = useState<Record<string, Partial<EventItem>>>({});
 
+  // 주의: 지난 공연은 더 이상 삭제하지 않습니다 (유저 티켓북의 과거 관람 기록 보존).
+  // 해외 공연 등 노이즈 데이터만 정리합니다.
   useEffect(() => {
-    const cleanupExpired = async () => {
+    const cleanupForeign = async () => {
       const snapshot = await getDocs(query(collection(db, "events")));
       for (const docSnap of snapshot.docs) {
         const item = { id: docSnap.id, ...docSnap.data() } as EventItem;
-        if (isExpiredAdminEvent(item) || !isKoreanAdminEvent(item)) {
+        if (!isKoreanAdminEvent(item)) {
           await deleteDoc(doc(db, "events", docSnap.id));
         }
       }
     };
 
-    cleanupExpired();
+    cleanupForeign();
   }, []);
 
   useEffect(() => {
@@ -280,6 +284,7 @@ function EventsTab() {
     setSourceUrl(item.sourceUrl || "");
     setInstagramUrl(item.instagramUrl || "");
     setPrice(item.price || "");
+    setTimetableImageUrl(item.timetableImageUrl || "");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -287,6 +292,7 @@ function EventsTab() {
     setEditingId(null);
     setTitle(""); setDate(""); setEndDate(""); setTime(""); setVenueName("");
     setArtistNames(""); setSourceUrl(""); setInstagramUrl(""); setPrice("");
+    setTimetableImageUrl("");
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -297,7 +303,7 @@ function EventsTab() {
     try {
       if (editingId) {
         const id = editingId;
-        const payload = { title, date, endDate, time, venueName, artistNames, sourceUrl, instagramUrl, price };
+        const payload = { title, date, endDate, time, venueName, artistNames, sourceUrl, instagramUrl, price, timetableImageUrl };
 
         // 낙관적 업데이트: 서버 응답을 기다리지 않고 즉시 화면에 반영
         setOptimisticEdits((prev) => ({ ...prev, [id]: payload }));
@@ -319,7 +325,7 @@ function EventsTab() {
         }
       } else {
         await addDoc(collection(db, "events"), {
-          title, date, endDate, time, venueName, artistNames, sourceUrl, instagramUrl, price,
+          title, date, endDate, time, venueName, artistNames, sourceUrl, instagramUrl, price, timetableImageUrl,
           createdAt: serverTimestamp(),
         });
         handleCancelEdit();
@@ -428,6 +434,7 @@ function EventsTab() {
             </div>
             <Input label="예매 링크" value={sourceUrl} onChange={setSourceUrl} />
             <Input label="인스타그램 링크" value={instagramUrl} onChange={setInstagramUrl} />
+            <Input label="타임테이블 이미지 URL (페스티벌, 선택)" value={timetableImageUrl} onChange={setTimetableImageUrl} />
 
             <div className="flex gap-3 pt-3">
               <button

@@ -20,6 +20,7 @@ export type ConcertRecord = {
   instagramUrl?: string;
   price?: string;
   posterUrl?: string;
+  timetableImageUrl?: string;
   dayLineups?: DayLineup[];
 };
 
@@ -222,6 +223,7 @@ export function mergeConcerts(existing: ConcertRecord, incoming: ConcertRecord):
     instagramUrl: pickNonEmpty(incoming.instagramUrl, existing.instagramUrl),
     price: priceB.length > priceA.length ? priceB : priceA,
     posterUrl: pickNonEmpty(existing.posterUrl, incoming.posterUrl),
+    timetableImageUrl: pickNonEmpty(existing.timetableImageUrl, incoming.timetableImageUrl),
     dayLineups,
   };
 }
