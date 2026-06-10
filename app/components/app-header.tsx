@@ -1,6 +1,5 @@
-// 각 탭 화면 공통 헤더 (서버/클라이언트 양쪽에서 사용 가능)
+// 각 탭 화면 공통 헤더 — 라이브클럽맵 워드마크 + 화면 제목
 
-import Link from "next/link";
 import type { ReactNode } from "react";
 
 export default function AppHeader({
@@ -13,27 +12,22 @@ export default function AppHeader({
   action?: ReactNode;
 }) {
   return (
-    <header className="mb-6 animate-fade-in md:mb-10">
+    <header className="mb-7 animate-fade-in md:mb-10">
       <div className="flex items-end justify-between gap-4">
         <div>
-          <p className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.32em] text-[var(--accent)]">
-            <span className="live-dot" />
-            Seoul Indie Live
+          <p className="mb-2.5 text-[11px] font-extrabold uppercase tracking-[0.26em] text-[var(--accent)]">
+            Live Club Map
           </p>
-          <h1 className="text-3xl font-extrabold leading-[1.05] tracking-[-0.045em] text-white md:text-5xl">
+          <h1 className="text-[28px] font-extrabold leading-[1.12] tracking-[-0.035em] text-white md:text-[40px]">
             {title}
           </h1>
           {subtitle && (
-            <p className="mt-3 max-w-md text-sm leading-relaxed text-[var(--muted)]">{subtitle}</p>
+            <p className="mt-2.5 max-w-md text-[13px] leading-relaxed text-[var(--muted)]">{subtitle}</p>
           )}
         </div>
-        {action ?? (
-          <Link href="/admin" className="secondary-btn hidden text-xs md:inline-flex">
-            Admin
-          </Link>
-        )}
+        {action}
       </div>
-      <div className="mt-6 h-px bg-gradient-to-r from-[var(--accent-soft)] via-white/5 to-transparent" />
+      <div className="mt-6 h-px bg-[var(--line)]" />
     </header>
   );
 }

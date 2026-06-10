@@ -7,8 +7,8 @@ import MapView from "../components/map-view";
 export const revalidate = 300;
 
 export const metadata: Metadata = {
-  title: "지도 | Seoul Indie Live",
-  description: "공연장 위치를 지도에서 확인하고 공연장별 일정을 둘러보세요.",
+  title: "공연장 지도 | 라이브클럽맵",
+  description: "라이브클럽 위치를 지도에서 확인하고 공연장별 일정을 둘러보세요 — 라이브클럽맵",
 };
 
 export default async function MapPage() {
@@ -16,7 +16,7 @@ export default async function MapPage() {
 
   return (
     <PageShell>
-      <AppHeader title={<><span className="text-gradient">Venue Map</span></>} subtitle="마커를 누르면 그 공연장의 다가오는 공연이 보입니다." />
+      <AppHeader title="공연장 지도" subtitle="마커를 누르면 장소 이름과 그 공연장의 일정이 보입니다." />
       <MapView initialEvents={events} loadError={loadError} />
     </PageShell>
   );

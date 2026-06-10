@@ -8,6 +8,7 @@ import {
   prepareUpcomingEvents,
   isFestivalEvent,
   getEventDates,
+  sortEventsForDay,
 } from "@/lib/events";
 import { ScheduleRow } from "./event-cards";
 
@@ -40,8 +41,10 @@ export default function CalendarView({
 
     for (let day = 1; day <= totalDays; day += 1) {
       const key = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-      // 멀티데이 공연(페스티벌)은 진행되는 모든 날짜에 표시
-      const dayEvents = sortedEvents.filter((event) => getEventDates(event).includes(key));
+      // 멀티데이 공연(페스티벌)은 진행되는 모든 날짜에 표시 + 페스티벌 우선 정렬
+      const dayEvents = sortEventsForDay(
+        sortedEvents.filter((event) => getEventDates(event).includes(key))
+      );
       cells.push({ key, day, events: dayEvents });
     }
 
@@ -58,7 +61,10 @@ export default function CalendarView({
 
   const selectedDateEvents = useMemo(() => {
     if (!selectedDate) return [] as EventItem[];
-    return sortedEvents.filter((event) => getEventDates(event).includes(selectedDate));
+    // 페스티벌 최상단 고정 정렬
+    return sortEventsForDay(
+      sortedEvents.filter((event) => getEventDates(event).includes(selectedDate))
+    );
   }, [selectedDate, sortedEvents]);
 
   if (loadError) {

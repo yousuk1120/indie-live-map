@@ -137,10 +137,10 @@ export default function EventDetailPage() {
           </h1>
 
           <div className="mt-8 grid gap-4 md:grid-cols-2">
-            <InfoCard label="Venue" value={eventData.venueName || "미정"} />
-            <InfoCard label="Artists" value={eventData.artistNames || "미정"} />
-            <InfoCard label="Schedule" value={`${formatSchedule(eventData)}${eventData.time ? ` · ${eventData.time}` : ""}`} />
-            <InfoCard label="Ticket" value={priceLines.join("\n") || "정보 없음"} preserveLineBreak />
+            <InfoCard label="장소" value={eventData.venueName || "미정"} />
+            <InfoCard label="출연" value={eventData.artistNames || "미정"} />
+            <InfoCard label="일정" value={`${formatSchedule(eventData)}${eventData.time ? ` · ${eventData.time}` : ""}`} />
+            <InfoCard label="티켓" value={priceLines.join("\n") || "정보 없음"} preserveLineBreak />
           </div>
 
           {/* 날짜별 라인업 + 나만의 라인업 선택 (멀티데이 페스티벌) */}
@@ -167,7 +167,7 @@ export default function EventDetailPage() {
 
             {eventData.timetableImageUrl ? (
               <button type="button" onClick={() => setShowTimetable(true)} className="secondary-btn">
-                🗓 타임테이블 보기
+                타임테이블 보기
               </button>
             ) : null}
           </div>

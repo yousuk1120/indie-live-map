@@ -7,7 +7,9 @@ import {
   isSameConcert,
   mergeConcerts,
   normalizeDateString,
+  extractDateRange,
 } from "@/lib/event-merge";
+import { canonicalVenueName } from "@/lib/venues";
 
 // 빌드 타임에 정적 처리 금지 — 항상 런타임에서만 실행
 export const dynamic = "force-dynamic";
@@ -181,12 +183,15 @@ export async function GET(req: Request) {
         } else {
           const realPost = newPosts[bestIndex];
 
+          // 날짜 범위 복원: "8.14~16" 형태가 date에 들어온 경우 endDate 도출
+          const range = extractDateRange(parsedInfo.date);
           const incoming: ConcertRecord = {
             title: parsedInfo.title,
-            date: normalizeDateString(parsedInfo.date),
-            endDate: normalizeDateString(parsedInfo.endDate),
+            date: range.start || normalizeDateString(parsedInfo.date),
+            endDate: normalizeDateString(parsedInfo.endDate) || range.end,
             time: parsedInfo.time,
-            venueName: parsedInfo.venueName,
+            // 장소 정규화: 별칭 통일 + 쓰레기 값("지하" 등) 제거
+            venueName: canonicalVenueName(parsedInfo.venueName),
             artistNames: parsedInfo.artistNames,
             sourceUrl: parsedInfo.ticketUrl,
             instagramUrl: realPost.instaLink || "",

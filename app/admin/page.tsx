@@ -14,7 +14,9 @@ import {
   isSameConcert,
   mergeConcerts,
   normalizeDateString,
+  extractDateRange,
 } from "@/lib/event-merge";
+import { canonicalVenueName } from "@/lib/venues";
 
 type EventItem = {
   id: string;
@@ -81,6 +83,15 @@ function adminIsPastDate(dateStr?: string): boolean {
 }
 
 // 중복 판정/병합 로직은 lib/event-merge.ts 공용 모듈을 사용합니다.
+
+// 비용 발생 API(parse-event, fetch-insta) 호출용 인증 헤더
+async function adminApiHeaders(): Promise<Record<string, string>> {
+  const token = await auth.currentUser?.getIdToken();
+  return {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
 
 function isExpiredAdminEvent(item: EventItem) {
   const date = adminNormalizeDate(item.date);
@@ -160,7 +171,7 @@ export default function AdminPage() {
         {/* ─── Top Bar ─── */}
         <div className="flex items-center justify-between mb-8">
           <Link href="/" className="text-xs text-[var(--muted)] hover:text-white transition-colors duration-200">
-            ← Concert Schedule
+            ← 라이브클럽맵
           </Link>
           <button
             onClick={handleLogout}
@@ -177,7 +188,7 @@ export default function AdminPage() {
             Control Center
           </p>
           <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-white">Admin</h1>
-          <p className="text-[var(--muted)] text-xs mt-1.5">인디 라이브 인벤토리 및 자동화 파이프라인 관리</p>
+          <p className="text-[var(--muted)] text-xs mt-1.5">라이브클럽맵 인벤토리 및 자동화 파이프라인 관리</p>
         </header>
 
         {/* ─── Tabs ─── */}
@@ -690,7 +701,7 @@ function SourcesTab() {
                   try {
                     const scrapeRes = await fetch("/api/fetch-insta", {
                       method: "POST",
-                      headers: { "Content-Type": "application/json" },
+                      headers: await adminApiHeaders(),
                       body: JSON.stringify({ username: account.accountName })
                     });
 
@@ -719,7 +730,7 @@ function SourcesTab() {
                     let parsedInfo = { title: "", date: "", endDate: "", time: "", venueName: "", artistNames: "", ticketUrl: "", price: "", chosenIndex: 0, dayLineups: [] as DayLineup[] };
 
                     const aiRes = await fetch("/api/parse-event", {
-                      method: "POST", headers: { "Content-Type": "application/json" },
+                      method: "POST", headers: await adminApiHeaders(),
                       body: JSON.stringify({ posts: newPosts, accountName: account.accountName })
                     });
                     const aiData = await aiRes.json();
@@ -742,12 +753,13 @@ function SourcesTab() {
 
                     // 정보 부족(제목/날짜 누락)이면 아예 수집하지 않음
                     if (parsedInfo.chosenIndex !== -1 && hasMinimumEventInfo(parsedInfo)) {
+                      const range = extractDateRange(parsedInfo.date);
                       const incoming: ConcertRecord = {
                         title: parsedInfo.title,
-                        date: normalizeDateString(parsedInfo.date),
-                        endDate: normalizeDateString(parsedInfo.endDate),
+                        date: range.start || normalizeDateString(parsedInfo.date),
+                        endDate: normalizeDateString(parsedInfo.endDate) || range.end,
                         time: parsedInfo.time || "",
-                        venueName: parsedInfo.venueName || "",
+                        venueName: canonicalVenueName(parsedInfo.venueName),
                         artistNames: parsedInfo.artistNames || "",
                         sourceUrl: parsedInfo.ticketUrl || "",
                         instagramUrl: realPost.instaLink || "",
@@ -900,12 +912,13 @@ function CandidatesTab() {
             continue;
           }
 
+          const canRange = extractDateRange(can.parsedDate);
           const incoming: ConcertRecord = {
             title: can.parsedTitle,
-            date: normalizeDateString(can.parsedDate),
-            endDate: normalizeDateString(can.parsedEndDate),
+            date: canRange.start || normalizeDateString(can.parsedDate),
+            endDate: normalizeDateString(can.parsedEndDate) || canRange.end,
             time: can.parsedTime || "",
-            venueName: can.parsedVenue || "",
+            venueName: canonicalVenueName(can.parsedVenue),
             artistNames: can.parsedArtists || "",
             sourceUrl: can.parsedTicket || "",
             instagramUrl: can.instaLink || "",
@@ -973,7 +986,7 @@ function CandidatesTab() {
       if (caption.trim()) {
         try {
           const res = await fetch("/api/parse-event", {
-            method: "POST", headers: { "Content-Type": "application/json" },
+            method: "POST", headers: await adminApiHeaders(),
             body: JSON.stringify({ caption })
           });
           const data = await res.json();
@@ -1076,12 +1089,13 @@ function CandidatesTab() {
     if (!approvingItem || !apTitle.trim()) return;
     setIsApproving(true);
     try {
+      const apRange = extractDateRange(apDate);
       const incoming: ConcertRecord = {
         title: apTitle,
-        date: normalizeDateString(apDate),
-        endDate: normalizeDateString(apEndDate),
+        date: apRange.start || normalizeDateString(apDate),
+        endDate: normalizeDateString(apEndDate) || apRange.end,
         time: apTime,
-        venueName: apVenue,
+        venueName: canonicalVenueName(apVenue) || apVenue.trim(),
         artistNames: apArtists,
         sourceUrl: apTicket,
         instagramUrl: approvingItem.instaLink || "",

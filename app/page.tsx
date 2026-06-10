@@ -8,8 +8,8 @@ import ListView from "./components/list-view";
 export const revalidate = 300;
 
 export const metadata: Metadata = {
-  title: "Seoul Indie Live | 공연 일정",
-  description: "서울 인디씬의 라이브 공연 일정 — 목록, 지도, 달력으로 한눈에.",
+  title: "라이브클럽맵 | 인디 공연 일정",
+  description: "인디씬 라이브 공연 일정을 한눈에 — 라이브클럽맵 (Live Club Map)",
 };
 
 export default async function HomePage() {
@@ -18,8 +18,8 @@ export default async function HomePage() {
   return (
     <PageShell>
       <AppHeader
-        title={<>Concert <span className="text-gradient">Schedule</span></>}
-        subtitle="서울 인디씬의 라이브 공연을 한곳에서. 오늘 밤 갈 공연을 찾아보세요."
+        title="다가오는 공연"
+        subtitle="라이브클럽과 페스티벌 일정을 한곳에서. 오늘 밤 갈 공연을 찾아보세요."
       />
       <ListView initialEvents={events} loadError={loadError} />
     </PageShell>

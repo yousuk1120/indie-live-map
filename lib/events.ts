@@ -1,7 +1,8 @@
 // 공연 이벤트 도메인 유틸리티 — 서버 컴포넌트와 클라이언트 컴포넌트 양쪽에서 사용됩니다.
 // 순수 함수만 포함하므로 "use client" 지시문이 없습니다.
 
-import { isSameConcert, mergeConcerts } from "./event-merge";
+import { isSameConcert, mergeConcerts, extractDateRange } from "./event-merge";
+import { canonicalVenueName } from "./venues";
 
 export type DayLineup = { date: string; artists: string };
 
@@ -284,13 +285,26 @@ export function normalizeEvent(id: string, raw: Record<string, unknown>): EventI
         .filter((d) => d.date && d.artists)
     : [];
 
+  // 날짜 범위 복원: date에 "8.14~16" 같은 범위 문자열이 들어 있고 endDate가 비어 있으면 도출
+  // (endDate 기능 이전에 수집된 기존 데이터도 표시 단계에서 멀티데이로 살아납니다)
+  const rawDate = toText(raw.date);
+  let endDate = toText(raw.endDate);
+  if (!endDate) {
+    const range = extractDateRange(rawDate);
+    if (range.end) endDate = range.end;
+  }
+
+  // 장소명 정규화: 별칭 통일 + 쓰레기 값("지하" 등) 제거
+  const rawVenue = toText(raw.venueName);
+  const venueName = canonicalVenueName(rawVenue);
+
   return {
     id,
     title: toText(raw.title),
-    date: toText(raw.date),
-    endDate: toText(raw.endDate),
+    date: rawDate,
+    endDate,
     time: toText(raw.time),
-    venueName: toText(raw.venueName),
+    venueName,
     artistNames: toText(raw.artistNames),
     sourceUrl: toText(raw.sourceUrl),
     instagramUrl: toText(raw.instagramUrl),
@@ -312,6 +326,34 @@ export function venueSearchCandidates(venueName: string) {
 export function prepareUpcomingEvents(events: EventItem[]): EventItem[] {
   const valid = events.filter(isKoreanEvent).filter(isFutureEvent);
   return deduplicateEvents(valid).sort((a, b) => eventTimestamp(a) - eventTimestamp(b));
+}
+
+// 달력의 특정 날짜 공연 정렬:
+//  1) 페스티벌/멀티데이가 일반 공연보다 무조건 위
+//  2) 페스티벌끼리는 기간 긴 순 → 시작일 빠른 순 → 제목순 (항상 같은 순서로 고정)
+//  3) 일반 공연은 시작 시간순
+export function sortEventsForDay(events: EventItem[]): EventItem[] {
+  const isBig = (e: EventItem) => isFestivalEvent(e) || getEventDates(e).length > 1;
+
+  return [...events].sort((a, b) => {
+    const bigA = isBig(a);
+    const bigB = isBig(b);
+    if (bigA !== bigB) return bigA ? -1 : 1;
+
+    if (bigA && bigB) {
+      const daysA = getEventDates(a).length;
+      const daysB = getEventDates(b).length;
+      if (daysA !== daysB) return daysB - daysA;
+
+      const startA = normalizeDate(a.date);
+      const startB = normalizeDate(b.date);
+      if (startA !== startB) return startA < startB ? -1 : 1;
+
+      return (a.title || "").localeCompare(b.title || "", "ko");
+    }
+
+    return eventTimestamp(a) - eventTimestamp(b);
+  });
 }
 
 // ─── 남은 일수 계산 ───

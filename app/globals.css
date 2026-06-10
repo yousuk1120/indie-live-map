@@ -26,9 +26,9 @@
   --accent: #a78bfa;
   --accent-2: #c4b5fd;
   --accent-deep: #7c3aed;
-  --accent-soft: rgba(167, 139, 250, 0.12);
-  --accent-border: rgba(167, 139, 250, 0.4);
-  --accent-glow: rgba(124, 58, 237, 0.35);
+  --accent-soft: rgba(167, 139, 250, 0.1);
+  --accent-border: rgba(167, 139, 250, 0.35);
+  --accent-glow: rgba(124, 58, 237, 0.2);
 
   --danger: #f87171;
   --success: #34d399;
@@ -90,8 +90,7 @@ img {
   pointer-events: none;
   z-index: 0;
   background:
-    radial-gradient(ellipse 60% 40% at 15% -5%, rgba(124, 58, 237, 0.16), transparent 60%),
-    radial-gradient(ellipse 50% 35% at 85% 0%, rgba(56, 189, 248, 0.07), transparent 60%);
+    radial-gradient(ellipse 55% 32% at 12% -5%, rgba(124, 58, 237, 0.09), transparent 60%);
 }
 
 /* ─── Gradient Text ─── */
@@ -245,6 +244,16 @@ img {
   animation: pulseSoft 2.2s ease-in-out infinite;
 }
 
+/* transform 없이 opacity만 — 카카오맵 등 좌표 계산이 필요한 요소의 컨테이너용 */
+@keyframes fadePure {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.animate-fade-pure {
+  animation: fadePure 0.4s ease-out forwards;
+}
+
 /* ─── Skeleton Shimmer (로딩 자리표시자) ─── */
 .skeleton {
   position: relative;
@@ -282,12 +291,9 @@ img {
 }
 
 .hover-card:hover {
-  border-color: var(--accent-border);
+  border-color: rgba(255, 255, 255, 0.18);
   transform: translateY(-2px);
-  box-shadow:
-    0 8px 28px rgba(0, 0, 0, 0.45),
-    0 0 0 1px var(--accent-soft),
-    0 4px 24px rgba(124, 58, 237, 0.1);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
 
 /* ─── Live dot ─── */

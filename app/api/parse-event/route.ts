@@ -2,8 +2,15 @@ import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { buildEventExtractionPrompt, sanitizeParsedEvent } from "@/lib/ai-event-prompt";
 import { hasMinimumEventInfo } from "@/lib/event-merge";
+import { verifyAdminRequest } from "@/lib/api-auth";
 
 export async function POST(req: Request) {
+  // 관리자 전용: OpenAI 비용이 발생하는 엔드포인트이므로 무인증 호출을 차단합니다.
+  const auth = await verifyAdminRequest(req);
+  if (!auth.ok) {
+    return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
+  }
+
   try {
     const { posts, accountName, caption } = await req.json();
 

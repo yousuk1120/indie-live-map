@@ -10,6 +10,7 @@ import {
   venueSearchCandidates,
   toText,
 } from "@/lib/events";
+import { venueGroupKey, canonicalVenueName } from "@/lib/venues";
 import { ScheduleRow } from "./event-cards";
 
 declare global {
@@ -54,24 +55,22 @@ export default function MapView({
   const sortedEvents = useMemo(() => prepareUpcomingEvents(initialEvents), [initialEvents]);
 
   const venueBuckets = useMemo(() => {
-    const normalizeVenue = (v: string) => {
-      const nv = v.replace(/\s+/g, "").toLowerCase();
-      if (nv.includes("pentaport") || nv.includes("펜타포트")) return "펜타포트";
-      return nv;
-    };
+    // 별칭 매핑(lib/venues) 기반 그룹핑 — 같은 공연장의 한/영 표기를 하나로 통일
     const bucket = new Map<string, { displayName: string; events: EventItem[] }>();
     sortedEvents.forEach((event) => {
       const venue = toText(event.venueName);
       if (!venue) return;
-      const key = normalizeVenue(venue);
+      const key = venueGroupKey(venue);
+      if (!key) return;
+      const displayName = canonicalVenueName(venue) || venue;
       const existing = bucket.get(key);
       if (existing) {
         existing.events.push(event);
-        if (/[가-힣]/.test(venue) && !/[가-힣]/.test(existing.displayName)) {
-          existing.displayName = venue;
+        if (/[가-힣]/.test(displayName) && !/[가-힣]/.test(existing.displayName)) {
+          existing.displayName = displayName;
         }
       } else {
-        bucket.set(key, { displayName: venue, events: [event] });
+        bucket.set(key, { displayName, events: [event] });
       }
     });
 
@@ -93,7 +92,8 @@ export default function MapView({
 
   const activeVenueEvents = useMemo(() => {
     if (!activeVenue) return [] as EventItem[];
-    return sortedEvents.filter((event) => event.venueName === activeVenue);
+    const activeKey = venueGroupKey(activeVenue);
+    return sortedEvents.filter((event) => venueGroupKey(event.venueName) === activeKey);
   }, [activeVenue, sortedEvents]);
 
   useEffect(() => {
@@ -119,7 +119,16 @@ export default function MapView({
       const map = new window.kakao.maps.Map(mapContainerRef.current, {
         center: new window.kakao.maps.LatLng(DEFAULT_CENTER.lat, DEFAULT_CENTER.lng),
         level: 6,
+        draggable: true,
       });
+
+      // PC 마우스 드래그/스크롤 줌 명시 활성화 + 레이아웃 보정
+      map.setDraggable(true);
+      map.setZoomable(true);
+      window.setTimeout(() => map.relayout(), 0);
+
+      // 마커 클릭 시 장소명을 보여줄 인포윈도우 (지도당 1개 재사용)
+      const infoWindow = new window.kakao.maps.InfoWindow({ zIndex: 10 });
 
       mapRef.current = map;
       markersRef.current.forEach((marker) => marker.setMap(null));
@@ -170,8 +179,13 @@ export default function MapView({
               bounds.extend(position);
               found += 1;
 
+              // 마커 클릭: 장소명 팝업 + 해당 공연장 일정 선택 + 지도 이동
               window.kakao.maps.event.addListener(marker, "click", () => {
                 setActiveVenue(bucket.venueName);
+                infoWindow.setContent(
+                  `<div style="padding:6px 12px;font-size:12px;font-weight:700;color:#111;white-space:nowrap;">${bucket.venueName}<span style="margin-left:6px;font-weight:500;color:#7c3aed;">${bucket.events.length}개 공연</span></div>`
+                );
+                infoWindow.open(map, marker);
                 map.panTo(position);
               });
 
@@ -215,7 +229,8 @@ export default function MapView({
         />
       ) : null}
 
-      <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px] animate-slide-up">
+      {/* 주의: transform 애니메이션은 카카오맵 드래그 좌표를 깨뜨리므로 opacity 전용 사용 */}
+      <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px] animate-fade-pure">
         <div className="order-1 overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--panel)]">
           <div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-3">
             <h2 className="text-sm font-semibold text-white">Map</h2>

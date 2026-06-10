@@ -55,7 +55,7 @@ export default function LoginPage() {
           <div className="mb-8 flex items-center justify-between">
             <h1 className="text-3xl font-semibold tracking-[-0.04em] text-white">Admin Login</h1>
             <Link href="/" className="secondary-btn">
-              ← Concert Schedule
+              ← 라이브클럽맵
             </Link>
           </div>
 

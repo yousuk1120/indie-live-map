@@ -7,8 +7,8 @@ import CalendarView from "../components/calendar-view";
 export const revalidate = 300;
 
 export const metadata: Metadata = {
-  title: "달력 | Seoul Indie Live",
-  description: "서울 인디 공연 일정을 달력으로 확인하세요. 페스티벌은 날짜별 라인업까지.",
+  title: "공연 달력 | 라이브클럽맵",
+  description: "인디 공연 일정을 달력으로 확인하세요. 페스티벌은 날짜별 라인업까지 — 라이브클럽맵",
 };
 
 export default async function CalendarPage() {
@@ -16,7 +16,7 @@ export default async function CalendarPage() {
 
   return (
     <PageShell>
-      <AppHeader title={<><span className="text-gradient">Calendar</span></>} subtitle="날짜별로 공연을 탐색하세요. 페스티벌은 그날의 라인업이 표시됩니다." />
+      <AppHeader title="공연 달력" subtitle="날짜별로 공연을 탐색하세요. 페스티벌은 그날의 라인업이 표시됩니다." />
       <CalendarView initialEvents={events} loadError={loadError} />
     </PageShell>
   );

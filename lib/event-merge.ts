@@ -1,5 +1,7 @@
 // 공연 중복 판정 + 병합 로직 — cron 파이프라인(서버), 관리자 페이지(클라이언트) 공용.
 // 순수 함수만 포함합니다.
+
+import { venueGroupKey, canonicalVenueName } from "./venues";
 //
 // 핵심 정책:
 //  1) 같은 공연 판정: 날짜 겹침 + (제목 유사 | 같은 장소+라인업 겹침 | 라인업 대부분 일치)
@@ -31,6 +33,57 @@ export function normalizeDateString(value?: string): string {
   const [, y, m, d] = match;
   const year = y.length === 2 ? `20${y}` : y;
   return `${year}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+}
+
+// 날짜 "범위" 인식 — "2026.8.14~16", "6/12-14", "8월 14일~16일", "2026-06-12 ~ 2026-06-14" 등.
+// 멀티데이 페스티벌이 date 한 칸에 범위 문자열로 들어온 경우 endDate를 복원합니다.
+export function extractDateRange(value?: string): { start: string; end: string } {
+  const raw = String(value || "").trim();
+  if (!raw) return { start: "", end: "" };
+
+  // 시작일: "2026-06-12" 또는 "2026년 6월 12일" 표기 모두 인식
+  let start = normalizeDateString(raw);
+  if (!start) {
+    const koreanStart = raw.match(/(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
+    if (koreanStart) {
+      start = `${koreanStart[1]}-${koreanStart[2].padStart(2, "0")}-${koreanStart[3].padStart(2, "0")}`;
+    }
+  }
+  if (!start) return { start: "", end: "" };
+
+  // 1) 완전한 날짜 두 개: "2026-06-12 ~ 2026-06-14", "6.12-6.14"
+  const fullPair = raw.match(
+    /(\d{2,4}[./-]\d{1,2}[./-]\d{1,2})\s*[~\-–—∼]\s*(\d{2,4}[./-]\d{1,2}[./-]\d{1,2})/
+  );
+  if (fullPair) {
+    const end = normalizeDateString(fullPair[2]);
+    return { start, end: end > start ? end : "" };
+  }
+
+  // 2) 월.일 짧은 종료: "8.14~9.2" (월/일), "6/12-14" (일만)
+  const shortPair = raw.match(
+    /\d{1,2}[./-](\d{1,2})\s*[~\-–—∼]\s*(?:(\d{1,2})[./-])?(\d{1,2})(?![./-]?\d)/
+  );
+  if (shortPair) {
+    const year = start.slice(0, 4);
+    const startMonth = start.slice(5, 7);
+    const endMonth = shortPair[2] ? shortPair[2].padStart(2, "0") : startMonth;
+    const endDay = shortPair[3].padStart(2, "0");
+    const end = `${year}-${endMonth}-${endDay}`;
+    return { start, end: end > start ? end : "" };
+  }
+
+  // 3) 한국어 표기: "6월 12일 ~ 14일", "8월 14일부터 16일까지"
+  const korean = raw.match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일?\s*(?:[~\-–—∼]|부터)\s*(?:(\d{1,2})\s*월\s*)?(\d{1,2})\s*일/);
+  if (korean) {
+    const year = start.slice(0, 4);
+    const endMonth = (korean[3] || korean[1]).padStart(2, "0");
+    const endDay = korean[4].padStart(2, "0");
+    const end = `${year}-${endMonth}-${endDay}`;
+    return { start, end: end > start ? end : "" };
+  }
+
+  return { start, end: "" };
 }
 
 export function normalizeConcertTitle(title: string): string {
@@ -95,7 +148,9 @@ export function lineupOverlapRatio(a?: string, b?: string): number {
 }
 
 export function normalizeVenueKey(value?: string): string {
-  return normalizeConcertTitle(value || "");
+  // 별칭 매핑(lib/venues)을 거쳐 같은 공연장이면 같은 키가 나오도록
+  const grouped = venueGroupKey(value);
+  return grouped || normalizeConcertTitle(value || "");
 }
 
 // ─── 날짜 범위 ───
@@ -217,7 +272,8 @@ export function mergeConcerts(existing: ConcertRecord, incoming: ConcertRecord):
     date: start,
     endDate: end && end !== start ? end : "",
     time: pickNonEmpty(existing.time, incoming.time),
-    venueName: preferKoreanText(existing.venueName, incoming.venueName),
+    venueName: canonicalVenueName(preferKoreanText(existing.venueName, incoming.venueName)) ||
+      preferKoreanText(existing.venueName, incoming.venueName),
     artistNames,
     sourceUrl: pickNonEmpty(existing.sourceUrl, incoming.sourceUrl),
     instagramUrl: pickNonEmpty(incoming.instagramUrl, existing.instagramUrl),

@@ -166,7 +166,7 @@ function RecordCard({ record }: { record: TicketRecord }) {
             <p className="text-xs font-medium text-[var(--muted)]">{formatSchedule(record)}</p>
             <h3 className="mt-1 text-base font-bold leading-snug text-white">{record.title || "제목 없는 공연"}</h3>
             {record.venueName && (
-              <p className="mt-1.5 text-xs text-[var(--text-secondary)]">📍 {record.venueName}</p>
+              <p className="mt-1.5 text-xs text-[var(--text-secondary)]">{record.venueName}</p>
             )}
           </div>
           <div className="flex shrink-0 flex-col items-end gap-1.5">

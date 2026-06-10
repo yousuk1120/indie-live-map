@@ -15,6 +15,20 @@ import {
 } from "@/lib/events";
 import { useTicketbook } from "@/lib/ticketbook";
 
+/* 메타 정보용 미니 아이콘 (이모지 대체 — 절제된 라인 아이콘) */
+function MetaIcon({ type }: { type: "venue" | "artist" | "price" }) {
+  const paths = {
+    venue: <path strokeLinecap="round" strokeLinejoin="round" d="M12 21s-6-4.8-6-9.5a6 6 0 1112 0C18 16.2 12 21 12 21zM12 13a2 2 0 100-4 2 2 0 000 4z" />,
+    artist: <path strokeLinecap="round" strokeLinejoin="round" d="M12 15a3.5 3.5 0 003.5-3.5v-5a3.5 3.5 0 10-7 0v5A3.5 3.5 0 0012 15zm6-3.5a6 6 0 01-12 0M12 18v3" />,
+    price: <path strokeLinecap="round" strokeLinejoin="round" d="M4 8a2 2 0 012-2h12a2 2 0 012 2v1.5a2.5 2.5 0 000 5V16a2 2 0 01-2 2H6a2 2 0 01-2-2v-1.5a2.5 2.5 0 000-5V8z" />,
+  };
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} className="h-3.5 w-3.5 shrink-0 text-[var(--muted)]">
+      {paths[type]}
+    </svg>
+  );
+}
+
 /* ─── Event List Row (홈 목록용) ─── */
 export function EventListRow({ event, index }: { event: EventItem; index: number }) {
   const router = useRouter();
@@ -67,22 +81,22 @@ export function EventListRow({ event, index }: { event: EventItem; index: number
             {event.title || "제목 없는 공연"}
           </h3>
 
-          <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-sm">
+          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm">
             {event.venueName && (
               <div className="flex items-center gap-1.5">
-                <span className="text-[var(--muted)]">📍</span>
+                <MetaIcon type="venue" />
                 <span className="text-[var(--text-secondary)]">{event.venueName}</span>
               </div>
             )}
             {event.artistNames && (
-              <div className="flex min-w-0 items-start gap-1.5">
-                <span className="shrink-0 text-[var(--muted)]">🎤</span>
+              <div className="flex min-w-0 items-center gap-1.5">
+                <MetaIcon type="artist" />
                 <span className="line-clamp-1 break-words text-[var(--text-secondary)]">{event.artistNames}</span>
               </div>
             )}
             {priceLines.length > 0 && (
               <div className="flex items-center gap-1.5">
-                <span className="text-[var(--muted)]">🎫</span>
+                <MetaIcon type="price" />
                 <span className="font-semibold text-white">{priceLines[0]}</span>
               </div>
             )}
@@ -140,16 +154,22 @@ export function ScheduleRow({ event, forDate }: { event: EventItem; forDate?: st
 
         <div className="mt-2 space-y-1.5">
           {event.venueName && (
-            <p className="text-xs text-[var(--text-secondary)]">📍 {event.venueName}</p>
+            <p className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)]">
+              <MetaIcon type="venue" />
+              {event.venueName}
+            </p>
           )}
           {lineupText && (
             <p className="line-clamp-2 text-xs text-[var(--text-secondary)]">
-              🎤 {dayLineup && <span className="font-semibold text-[var(--accent)]">이날 라인업 · </span>}
+              {dayLineup && <span className="font-semibold text-[var(--accent)]">이날 라인업 · </span>}
               {lineupText}
             </p>
           )}
           {priceLines.length > 0 && (
-            <p className="text-xs font-semibold text-white">🎫 {priceLines.join(" / ")}</p>
+            <p className="flex items-center gap-1.5 text-xs font-semibold text-white">
+              <MetaIcon type="price" />
+              {priceLines.join(" / ")}
+            </p>
           )}
         </div>
       </button>
