@@ -7,17 +7,28 @@ import { onAuthStateChanged, signOut } from "firebase/auth";
 import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, serverTimestamp, where, getDocs } from "firebase/firestore";
 import { auth } from "@/lib/firebase/auth";
 import { db } from "@/lib/firebase/firestore";
+import {
+  type ConcertRecord,
+  type DayLineup,
+  hasMinimumEventInfo,
+  isSameConcert,
+  mergeConcerts,
+  normalizeDateString,
+} from "@/lib/event-merge";
 
 type EventItem = {
   id: string;
   title?: string;
   date?: string;
+  endDate?: string;
   time?: string;
   venueName?: string;
   artistNames?: string;
   sourceUrl?: string;
   instagramUrl?: string;
   price?: string;
+  posterUrl?: string;
+  dayLineups?: DayLineup[];
 };
 
 function adminToText(value: unknown): string {
@@ -68,43 +79,15 @@ function adminIsPastDate(dateStr?: string): boolean {
   return eventEnd <= endOfToday.getTime();
 }
 
-function normalizeConcertTitle(title: string): string {
-  return title.toLowerCase().replace(/[\s\-_.,!?'"()\[\]]/g, "").replace(/[^\w가-힣]/g, "");
-}
-
-function areSimilarTitles(a: string, b: string): boolean {
-  const na = normalizeConcertTitle(a);
-  const nb = normalizeConcertTitle(b);
-  if (!na || !nb) return false;
-  if (na === nb) return true;
-  if (na.length >= 4 && nb.length >= 4 && (na.includes(nb) || nb.includes(na))) return true;
-
-  // 페스티벌 한/영 동의어 그룹 처리
-  const festKeywords = [
-    ["펜타포트", "pentaport"],
-    ["원유니버스", "oneuniverse"],
-    ["dmz", "디엠지", "피스트레인", "peacetrain"],
-    ["점프", "jumf", "전주얼티밋"],
-    ["그랜드민트", "gmf", "grandmint"],
-    ["뷰티풀민트", "bml", "beautifulmint"],
-    ["부산국제록", "birs", "busanrock"],
-    ["사운드베리", "soundberry"],
-  ];
-
-  for (const group of festKeywords) {
-    if (group.some(k => na.includes(k)) && group.some(k => nb.includes(k))) {
-      return true;
-    }
-  }
-
-  return false;
-}
+// 중복 판정/병합 로직은 lib/event-merge.ts 공용 모듈을 사용합니다.
 
 function isExpiredAdminEvent(item: EventItem) {
   const date = adminNormalizeDate(item.date);
   if (!date) return false;
 
-  const eventEnd = new Date(`${date}T23:59:59`).getTime();
+  // 멀티데이 공연은 종료일 기준 (진행 중인 페스티벌이 삭제되지 않도록)
+  const endDate = adminNormalizeDate(item.endDate) || date;
+  const eventEnd = new Date(`${endDate}T23:59:59`).getTime();
   const endOfToday = new Date();
   endOfToday.setHours(23, 59, 59, 999);
 
@@ -126,11 +109,13 @@ type CandidateEvent = {
   posterUrl: string;
   parsedTitle?: string;
   parsedDate?: string;
+  parsedEndDate?: string;
   parsedTime?: string;
   parsedVenue?: string;
   parsedArtists?: string;
   parsedTicket?: string;
   parsedPrice?: string;
+  parsedDayLineups?: DayLineup[];
 };
 
 export default function AdminPage() {
@@ -234,6 +219,7 @@ function EventsTab() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [time, setTime] = useState("");
   const [venueName, setVenueName] = useState("");
   const [artistNames, setArtistNames] = useState("");
@@ -287,6 +273,7 @@ function EventsTab() {
     setEditingId(item.id);
     setTitle(item.title || "");
     setDate(item.date || "");
+    setEndDate(item.endDate || "");
     setTime(item.time || "");
     setVenueName(item.venueName || "");
     setArtistNames(item.artistNames || "");
@@ -298,7 +285,7 @@ function EventsTab() {
 
   const handleCancelEdit = () => {
     setEditingId(null);
-    setTitle(""); setDate(""); setTime(""); setVenueName("");
+    setTitle(""); setDate(""); setEndDate(""); setTime(""); setVenueName("");
     setArtistNames(""); setSourceUrl(""); setInstagramUrl(""); setPrice("");
   };
 
@@ -310,7 +297,7 @@ function EventsTab() {
     try {
       if (editingId) {
         const id = editingId;
-        const payload = { title, date, time, venueName, artistNames, sourceUrl, instagramUrl, price };
+        const payload = { title, date, endDate, time, venueName, artistNames, sourceUrl, instagramUrl, price };
 
         // 낙관적 업데이트: 서버 응답을 기다리지 않고 즉시 화면에 반영
         setOptimisticEdits((prev) => ({ ...prev, [id]: payload }));
@@ -332,7 +319,7 @@ function EventsTab() {
         }
       } else {
         await addDoc(collection(db, "events"), {
-          title, date, time, venueName, artistNames, sourceUrl, instagramUrl, price,
+          title, date, endDate, time, venueName, artistNames, sourceUrl, instagramUrl, price,
           createdAt: serverTimestamp(),
         });
         handleCancelEdit();
@@ -366,55 +353,47 @@ function EventsTab() {
     }
   };
 
-  // 중복 제거 유틸리티
+  // 중복 정리 유틸리티 — 같은 공연을 찾아 하나로 "병합"합니다 (한국어 제목 우선, 정보 합집합).
   const handleDedup = async () => {
-    if (!window.confirm("같은 날짜+장소+유사 제목의 중복 공연을 자동으로 정리합니다.\n(가장 오래된 것 1개만 남기고 나머지를 삭제합니다)\n\n진행하시겠습니까?")) return;
+    if (!window.confirm("같은 공연(한/영 표기, 라인업 겹침 포함)을 자동으로 하나로 병합합니다.\n한국어 제목이 우선되며 라인업·가격 등 정보는 합쳐집니다.\n\n진행하시겠습니까?")) return;
 
     setIsDedupRunning(true);
     try {
       const snapshot = await getDocs(collection(db, "events"));
       const allEvents = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as EventItem));
 
-      // 그룹핑: 같은 날짜+장소+유사 제목
-      const groups = new Map<string, EventItem[]>();
+      // 같은 공연끼리 그룹핑 (공용 isSameConcert 판정 사용)
+      const groups: EventItem[][] = [];
       for (const ev of allEvents) {
-        const dateKey = adminNormalizeDate(ev.date);
-        const venueKey = normalizeConcertTitle(ev.venueName || "");
-        if (!dateKey || !venueKey) continue;
-
-        const groupKey = `${dateKey}__${venueKey}`;
-
-        let foundGroup = false;
-        for (const [key, group] of groups.entries()) {
-          if (key.startsWith(`${dateKey}__`) && areSimilarTitles(group[0].title || "", ev.title || "")) {
-            group.push(ev);
-            foundGroup = true;
-            break;
-          }
-        }
-
-        if (!foundGroup) {
-          const existing = groups.get(groupKey);
-          if (existing && areSimilarTitles(existing[0].title || "", ev.title || "")) {
-            existing.push(ev);
-          } else {
-            groups.set(`${groupKey}__${normalizeConcertTitle(ev.title || "")}`, [ev]);
-          }
-        }
+        const group = groups.find((g) => g.some((member) => isSameConcert(member, ev)));
+        if (group) group.push(ev);
+        else groups.push([ev]);
       }
 
+      let mergedGroupCount = 0;
       let deletedCount = 0;
-      for (const [, group] of groups) {
+
+      for (const group of groups) {
         if (group.length <= 1) continue;
 
-        // 첫 번째(가장 오래된) 것만 남기고 나머지 삭제
+        // 그룹 전체를 하나로 병합한 뒤, 첫 문서에 병합 결과 저장 + 나머지 삭제
+        let merged: ConcertRecord = { ...group[0] };
+        for (let i = 1; i < group.length; i++) {
+          merged = { ...merged, ...mergeConcerts(merged, group[i]) };
+        }
+
+        const keepId = group[0].id;
+        const { id: _id, ...mergedFields } = merged;
+        await updateDoc(doc(db, "events", keepId), { ...mergedFields });
+
         for (let i = 1; i < group.length; i++) {
           await deleteDoc(doc(db, "events", group[i].id));
           deletedCount++;
         }
+        mergedGroupCount++;
       }
 
-      alert(`중복 정리 완료: ${deletedCount}개의 중복 공연이 삭제되었습니다.`);
+      alert(`중복 정리 완료: ${mergedGroupCount}개 공연으로 병합, 중복 문서 ${deletedCount}개 삭제.`);
     } catch (error) {
       console.error(error);
       alert("중복 정리 중 오류가 발생했습니다.");
@@ -441,6 +420,7 @@ function EventsTab() {
               <Input label="날짜" placeholder="YYYY-MM-DD" value={date} onChange={setDate} />
               <Input label="시간" placeholder="19:00" value={time} onChange={setTime} />
             </div>
+            <Input label="종료 날짜 (멀티데이만, 선택)" placeholder="YYYY-MM-DD" value={endDate} onChange={setEndDate} />
             <Input label="장소명" value={venueName} onChange={setVenueName} />
             <div className="grid grid-cols-2 gap-3">
               <Input label="아티스트" value={artistNames} onChange={setArtistNames} />
@@ -508,7 +488,9 @@ function EventsTab() {
                     {ev.date && (
                       <p className="flex gap-3">
                         <span className="text-white/20 font-medium shrink-0 w-8">일시</span>
-                        <span className="text-[var(--text-secondary)]">{ev.date} {ev.time}</span>
+                        <span className="text-[var(--text-secondary)]">
+                          {ev.date}{ev.endDate ? ` ~ ${ev.endDate}` : ""} {ev.time}
+                        </span>
                       </p>
                     )}
                     {ev.venueName && (
@@ -727,7 +709,7 @@ function SourcesTab() {
                       continue;
                     }
 
-                    let parsedInfo = { title: "", date: "", time: "", venueName: "", artistNames: "", ticketUrl: "", price: "", chosenIndex: 0 };
+                    let parsedInfo = { title: "", date: "", endDate: "", time: "", venueName: "", artistNames: "", ticketUrl: "", price: "", chosenIndex: 0, dayLineups: [] as DayLineup[] };
 
                     const aiRes = await fetch("/api/parse-event", {
                       method: "POST", headers: { "Content-Type": "application/json" },
@@ -735,7 +717,7 @@ function SourcesTab() {
                     });
                     const aiData = await aiRes.json();
                     if (aiData.success && aiData.data) {
-                      parsedInfo = aiData.data;
+                      parsedInfo = { ...parsedInfo, ...aiData.data };
                     }
 
                     const bestIndex = (parsedInfo.chosenIndex !== undefined && parsedInfo.chosenIndex !== -1) ? parsedInfo.chosenIndex : 0;
@@ -751,46 +733,58 @@ function SourcesTab() {
                       if (i === bestIndex) targetRawPostId = rawRef.id;
                     }
 
-                    if (parsedInfo.chosenIndex !== -1) {
-                      // 자동 등록 vs 승인 큐 분기
-                      const isComplete = !!(parsedInfo.title && parsedInfo.date && parsedInfo.venueName);
+                    // 정보 부족(제목/날짜 누락)이면 아예 수집하지 않음
+                    if (parsedInfo.chosenIndex !== -1 && hasMinimumEventInfo(parsedInfo)) {
+                      const incoming: ConcertRecord = {
+                        title: parsedInfo.title,
+                        date: normalizeDateString(parsedInfo.date),
+                        endDate: normalizeDateString(parsedInfo.endDate),
+                        time: parsedInfo.time || "",
+                        venueName: parsedInfo.venueName || "",
+                        artistNames: parsedInfo.artistNames || "",
+                        sourceUrl: parsedInfo.ticketUrl || "",
+                        instagramUrl: realPost.instaLink || "",
+                        price: parsedInfo.price || "",
+                        posterUrl: realPost.posterUrl || "",
+                        dayLineups: (parsedInfo.dayLineups || []).map((d) => ({ date: normalizeDateString(d.date), artists: d.artists })).filter((d) => d.date),
+                      };
 
-                      if (isComplete) {
-                        // 중복 체크
-                        const eventsSnap = await getDocs(collection(db, "events"));
-                        const existingEvents = eventsSnap.docs.map(d => ({ id: d.id, ...d.data() } as EventItem));
-                        const normalizedParsedDate = adminNormalizeDate(parsedInfo.date);
-                        const isDuplicate = existingEvents.some(ev => {
-                          const sameDateAndVenue =
-                            adminNormalizeDate(ev.date) === normalizedParsedDate &&
-                            normalizeConcertTitle(ev.venueName || "") === normalizeConcertTitle(parsedInfo.venueName) &&
-                            normalizeConcertTitle(ev.venueName || "").length > 0;
-                          return sameDateAndVenue && areSimilarTitles(ev.title || "", parsedInfo.title);
+                      const eventsSnap = await getDocs(collection(db, "events"));
+                      const existingEvents = eventsSnap.docs.map(d => ({ id: d.id, ...d.data() } as EventItem));
+                      const matched = existingEvents.find(ev => isSameConcert(ev, incoming));
+
+                      if (matched) {
+                        // 같은 공연 → 기존 문서에 병합 (라인업 추가/수정 자동 반영, 한국어 우선)
+                        const merged = mergeConcerts(matched, incoming);
+                        await updateDoc(doc(db, "events", matched.id), { ...merged, updatedAt: serverTimestamp() });
+                      } else if (incoming.venueName) {
+                        // 완전한 정보 → 자동 발행
+                        await addDoc(collection(db, "events"), {
+                          title: incoming.title,
+                          date: incoming.date,
+                          endDate: incoming.endDate || "",
+                          time: incoming.time,
+                          venueName: incoming.venueName,
+                          artistNames: incoming.artistNames,
+                          sourceUrl: incoming.sourceUrl,
+                          instagramUrl: incoming.instagramUrl,
+                          price: incoming.price,
+                          posterUrl: incoming.posterUrl,
+                          dayLineups: incoming.dayLineups || [],
+                          createdAt: serverTimestamp(),
+                          autoPublished: true,
                         });
-
-                        if (!isDuplicate) {
-                          await addDoc(collection(db, "events"), {
-                            title: parsedInfo.title,
-                            date: parsedInfo.date,
-                            time: parsedInfo.time || "",
-                            venueName: parsedInfo.venueName,
-                            artistNames: parsedInfo.artistNames || "",
-                            sourceUrl: parsedInfo.ticketUrl || "",
-                            instagramUrl: realPost.instaLink || "",
-                            price: parsedInfo.price || "",
-                            createdAt: serverTimestamp(),
-                            autoPublished: true,
-                          });
-                        }
                       } else {
+                        // 장소 누락 → 승인 큐
                         await addDoc(collection(db, "candidate_events"), {
                           rawPostId: targetRawPostId,
                           sourceAccountId: account.id,
                           sourceAccountName: account.accountName,
                           instaLink: realPost.instaLink, caption: realPost.caption, posterUrl: realPost.posterUrl,
-                          parsedTitle: parsedInfo.title || "", parsedDate: parsedInfo.date || "", parsedTime: parsedInfo.time || "",
-                          parsedVenue: parsedInfo.venueName || "", parsedArtists: parsedInfo.artistNames || "", parsedTicket: parsedInfo.ticketUrl || "", parsedPrice: parsedInfo.price || "",
-                          confidence: 0.9, notes: "수동 수집 + GPT AI", createdAt: serverTimestamp()
+                          parsedTitle: incoming.title || "", parsedDate: incoming.date || "", parsedEndDate: incoming.endDate || "", parsedTime: incoming.time || "",
+                          parsedVenue: "", parsedArtists: incoming.artistNames || "", parsedTicket: incoming.sourceUrl || "", parsedPrice: incoming.price || "",
+                          parsedDayLineups: incoming.dayLineups || [],
+                          confidence: 0.9, notes: "수동 수집: 장소 누락으로 승인 필요", createdAt: serverTimestamp()
                         });
                       }
                     }
@@ -855,6 +849,7 @@ function CandidatesTab() {
   const [approvingItem, setApprovingItem] = useState<CandidateEvent | null>(null);
   const [apTitle, setApTitle] = useState("");
   const [apDate, setApDate] = useState("");
+  const [apEndDate, setApEndDate] = useState("");
   const [apTime, setApTime] = useState("");
   const [apVenue, setApVenue] = useState("");
   const [apArtists, setApArtists] = useState("");
@@ -884,6 +879,7 @@ function CandidatesTab() {
         const existingEvents = eventsSnap.docs.map(d => ({ id: d.id, ...d.data() } as EventItem));
 
         let autoCount = 0;
+        let mergedCount = 0;
         for (const can of candidates) {
           // 과거 날짜 후보는 삭제
           if (adminIsPastDate(can.parsedDate)) {
@@ -891,34 +887,49 @@ function CandidatesTab() {
             continue;
           }
 
-          // 필수 정보: 제목+날짜만 있으면 자동 등록 (장소 없어도 OK)
-          const hasTitle = !!can.parsedTitle;
-          const hasDate = !!can.parsedDate;
-          if (!hasTitle || !hasDate) continue;
-
-          // 중복 체크: 같은 날짜 + 유사 제목
-          const normalizedDate = adminNormalizeDate(can.parsedDate);
-          const isDuplicate = existingEvents.some(ev => {
-            const sameDate = adminNormalizeDate(ev.date) === normalizedDate;
-            return sameDate && areSimilarTitles(ev.title || "", can.parsedTitle || "");
-          });
-
-          if (isDuplicate) {
-            // 중복이면 candidate에서 제거
+          // 정보 부족(제목 또는 날짜 누락) 후보는 큐에 쌓지 않고 자동 삭제
+          if (!hasMinimumEventInfo({ title: can.parsedTitle, date: can.parsedDate })) {
             await deleteDoc(doc(db, "candidate_events", can.id));
+            continue;
+          }
+
+          const incoming: ConcertRecord = {
+            title: can.parsedTitle,
+            date: normalizeDateString(can.parsedDate),
+            endDate: normalizeDateString(can.parsedEndDate),
+            time: can.parsedTime || "",
+            venueName: can.parsedVenue || "",
+            artistNames: can.parsedArtists || "",
+            sourceUrl: can.parsedTicket || "",
+            instagramUrl: can.instaLink || "",
+            price: can.parsedPrice || "",
+            posterUrl: can.posterUrl || "",
+            dayLineups: (can.parsedDayLineups || []).map((d) => ({ date: normalizeDateString(d.date), artists: d.artists })).filter((d) => d.date),
+          };
+
+          // 같은 공연이 이미 있으면 → 병합 업데이트 (라인업 추가분 자동 반영) 후 후보 제거
+          const matched = existingEvents.find(ev => isSameConcert(ev, incoming));
+          if (matched) {
+            const merged = mergeConcerts(matched, incoming);
+            await updateDoc(doc(db, "events", matched.id), { ...merged, updatedAt: serverTimestamp() });
+            Object.assign(matched, merged);
+            await deleteDoc(doc(db, "candidate_events", can.id));
+            mergedCount++;
             continue;
           }
 
           // events에 자동 등록
           await addDoc(collection(db, "events"), {
-            title: can.parsedTitle,
-            date: can.parsedDate,
-            time: can.parsedTime || "",
-            venueName: can.parsedVenue,
-            artistNames: can.parsedArtists || "",
-            sourceUrl: can.parsedTicket || "",
-            instagramUrl: can.instaLink || "",
-            price: can.parsedPrice || "",
+            title: incoming.title,
+            date: incoming.date,
+            endDate: incoming.endDate || "",
+            time: incoming.time,
+            venueName: incoming.venueName,
+            artistNames: incoming.artistNames,
+            sourceUrl: incoming.sourceUrl,
+            instagramUrl: incoming.instagramUrl,
+            price: incoming.price,
+            dayLineups: incoming.dayLineups || [],
             createdAt: serverTimestamp(),
             autoPublished: true,
           });
@@ -929,16 +940,14 @@ function CandidatesTab() {
           // 중복 방지를 위해 방금 등록한 것도 목록에 추가
           existingEvents.push({
             id: "auto-" + can.id,
-            title: can.parsedTitle,
-            date: can.parsedDate,
-            venueName: can.parsedVenue,
+            ...incoming,
           } as EventItem);
 
           autoCount++;
         }
 
-        if (autoCount > 0) {
-          console.log(`[자동 승인] ${autoCount}개 공연이 자동 발행되었습니다.`);
+        if (autoCount > 0 || mergedCount > 0) {
+          console.log(`[자동 승인] 발행 ${autoCount}건, 기존 공연 병합 ${mergedCount}건.`);
         }
       } catch (err) {
         console.error("[자동 승인 에러]", err);
@@ -1047,6 +1056,7 @@ function CandidatesTab() {
     setApprovingItem(can);
     setApTitle(can.parsedTitle || "");
     setApDate(can.parsedDate || "");
+    setApEndDate(can.parsedEndDate || "");
     setApTime(can.parsedTime || "");
     setApVenue(can.parsedVenue || "");
     setApArtists(can.parsedArtists || "");
@@ -1059,42 +1069,72 @@ function CandidatesTab() {
     if (!approvingItem || !apTitle.trim()) return;
     setIsApproving(true);
     try {
+      const incoming: ConcertRecord = {
+        title: apTitle,
+        date: normalizeDateString(apDate),
+        endDate: normalizeDateString(apEndDate),
+        time: apTime,
+        venueName: apVenue,
+        artistNames: apArtists,
+        sourceUrl: apTicket,
+        instagramUrl: approvingItem.instaLink || "",
+        price: apPrice,
+        posterUrl: approvingItem.posterUrl || "",
+        dayLineups: (approvingItem.parsedDayLineups || []).map((d) => ({ date: normalizeDateString(d.date), artists: d.artists })).filter((d) => d.date),
+      };
+
       const eventsSnap = await getDocs(collection(db, "events"));
       const existingEvents = eventsSnap.docs.map(d => ({ id: d.id, ...d.data() } as EventItem));
-      const duplicate = existingEvents.find(ev => {
-        const sameDateAndVenue =
-          adminNormalizeDate(ev.date) === adminNormalizeDate(apDate) &&
-          normalizeConcertTitle(ev.venueName || "") === normalizeConcertTitle(apVenue) &&
-          normalizeConcertTitle(ev.venueName || "").length > 0;
-        return sameDateAndVenue && areSimilarTitles(ev.title || "", apTitle);
-      });
+      const duplicate = existingEvents.find(ev => isSameConcert(ev, incoming));
 
       if (duplicate) {
         const confirmed = window.confirm(
-          `⚠️ 중복 감지: "${duplicate.title}" 이(가) 이미 같은 날짜·장소에 등록되어 있습니다.\n\n그래도 등록하시겠습니까?`
+          `⚠️ 같은 공연 감지: "${duplicate.title}" 이(가) 이미 등록되어 있습니다.\n\n[확인]을 누르면 새 공연을 만들지 않고 기존 공연에 정보를 병합합니다.\n(한국어 제목 우선, 라인업·가격 등 정보 합침)`
         );
         if (!confirmed) {
           setIsApproving(false);
           return;
         }
+
+        // 낙관적 병합: 모달을 닫고 목록에서 즉시 제거
+        const approvedId = approvingItem.id;
+        setPendingRemoveIds((prev) => new Set(prev).add(approvedId));
+        setApprovingItem(null);
+
+        try {
+          const merged = mergeConcerts(duplicate, incoming);
+          await updateDoc(doc(db, "events", duplicate.id), { ...merged, updatedAt: serverTimestamp() });
+          await deleteDoc(doc(db, "candidate_events", approvedId));
+        } catch (err) {
+          console.error("병합 실패:", err);
+          alert("병합에 실패했습니다. 항목이 복원됩니다.");
+        } finally {
+          setPendingRemoveIds((prev) => {
+            const next = new Set(prev);
+            next.delete(approvedId);
+            return next;
+          });
+        }
+        return;
       }
 
       // 낙관적 승인: 모달을 닫고 목록에서 즉시 제거
       const approvedId = approvingItem.id;
-      const instaLinkOfItem = approvingItem.instaLink || "";
       setPendingRemoveIds((prev) => new Set(prev).add(approvedId));
       setApprovingItem(null);
 
       try {
         await addDoc(collection(db, "events"), {
-          title: apTitle,
-          date: apDate,
-          time: apTime,
-          venueName: apVenue,
-          artistNames: apArtists,
-          sourceUrl: apTicket,
-          instagramUrl: instaLinkOfItem,
-          price: apPrice,
+          title: incoming.title,
+          date: incoming.date,
+          endDate: incoming.endDate || "",
+          time: incoming.time,
+          venueName: incoming.venueName,
+          artistNames: incoming.artistNames,
+          sourceUrl: incoming.sourceUrl,
+          instagramUrl: incoming.instagramUrl,
+          price: incoming.price,
+          dayLineups: incoming.dayLineups || [],
           createdAt: serverTimestamp(),
         });
         await deleteDoc(doc(db, "candidate_events", approvedId));
@@ -1137,6 +1177,7 @@ function CandidatesTab() {
                 <Input label="날짜" value={apDate} onChange={setApDate} />
                 <Input label="시간" value={apTime} onChange={setApTime} />
               </div>
+              <Input label="종료 날짜 (멀티데이만, 선택)" placeholder="YYYY-MM-DD" value={apEndDate} onChange={setApEndDate} />
               <Input label="장소" value={apVenue} onChange={setApVenue} />
               <div className="grid grid-cols-2 gap-3">
                 <Input label="아티스트" value={apArtists} onChange={setApArtists} />

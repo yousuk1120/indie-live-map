@@ -6,7 +6,6 @@ import Script from "next/script";
 import { useRouter } from "next/navigation";
 import {
   type EventItem,
-  normalizeDate,
   eventTimestamp,
   isFutureEvent,
   isKoreanEvent,
@@ -16,6 +15,8 @@ import {
   formatPriceLines,
   getInstagramLink,
   getDaysUntil,
+  getEventDates,
+  getLineupForDate,
   venueSearchCandidates,
   toText,
 } from "@/lib/events";
@@ -155,7 +156,8 @@ export default function HomeClient({ initialEvents, loadError }: HomeClientProps
 
     for (let day = 1; day <= totalDays; day += 1) {
       const key = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-      const dayEvents = sortedEvents.filter((event) => normalizeDate(event.date) === key);
+      // 멀티데이 공연(페스티벌)은 진행되는 모든 날짜에 표시
+      const dayEvents = sortedEvents.filter((event) => getEventDates(event).includes(key));
       cells.push({ key, day, events: dayEvents });
     }
 
@@ -172,7 +174,7 @@ export default function HomeClient({ initialEvents, loadError }: HomeClientProps
 
   const selectedDateEvents = useMemo(() => {
     if (!selectedDate) return [] as EventItem[];
-    return sortedEvents.filter((event) => normalizeDate(event.date) === selectedDate);
+    return sortedEvents.filter((event) => getEventDates(event).includes(selectedDate));
   }, [selectedDate, sortedEvents]);
 
   useEffect(() => {
@@ -518,6 +520,7 @@ export default function HomeClient({ initialEvents, loadError }: HomeClientProps
                         <ScheduleRow
                           key={event.id}
                           event={event}
+                          forDate={selectedDate}
                           onOpen={() => router.push(`/events/${event.id}`)}
                           isSaved={savedEvents.has(event.id)}
                           onToggleSave={() => toggleSave(event.id)}
@@ -582,6 +585,7 @@ function EventListRow({
   const instagramUrl = getInstagramLink(event);
   const daysTag = getDaysUntil(event);
   const isFest = isFestivalEvent(event);
+  const totalDays = getEventDates(event).length;
 
   return (
     <article
@@ -607,6 +611,11 @@ function EventListRow({
             {isFest && (
               <span className="rounded-md border border-[var(--fest-border)] bg-[var(--fest-bg)] px-2 py-0.5 text-[10px] font-bold text-[var(--fest-text)]">
                 FESTIVAL
+              </span>
+            )}
+            {totalDays > 1 && (
+              <span className="rounded-md bg-white/10 px-2 py-0.5 text-[10px] font-bold text-white/70">
+                {totalDays}일간
               </span>
             )}
           </div>
@@ -673,15 +682,19 @@ function ScheduleRow({
   onOpen,
   isSaved,
   onToggleSave,
+  forDate,
 }: {
   event: EventItem;
   onOpen: () => void;
   isSaved: boolean;
   onToggleSave: () => void;
+  forDate?: string; // 달력에서 선택한 날짜 — 페스티벌은 그날의 라인업만 표시
 }) {
   const priceLines = formatPriceLines(event.price);
   const instagramUrl = getInstagramLink(event);
   const isFest = isFestivalEvent(event);
+  const dayLineup = forDate ? getLineupForDate(event, forDate) : "";
+  const lineupText = dayLineup || event.artistNames;
 
   return (
     <div className={`overflow-hidden rounded-2xl border ${isFest ? "border-[var(--fest-border)] bg-[var(--fest-bg)]" : "border-[var(--line)] bg-[var(--panel-2)]"} hover-card p-3 transition`}>
@@ -693,8 +706,11 @@ function ScheduleRow({
           {event.venueName && (
             <p className="text-xs text-[var(--text-secondary)]">📍 {event.venueName}</p>
           )}
-          {event.artistNames && (
-            <p className="line-clamp-2 text-xs text-[var(--text-secondary)]">🎤 {event.artistNames}</p>
+          {lineupText && (
+            <p className="line-clamp-2 text-xs text-[var(--text-secondary)]">
+              🎤 {dayLineup && <span className="font-semibold text-[var(--accent)]">이날 라인업 · </span>}
+              {lineupText}
+            </p>
           )}
           {priceLines.length > 0 && (
             <p className="text-xs font-semibold text-white">🎫 {priceLines.join(" / ")}</p>

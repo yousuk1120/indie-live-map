@@ -1,31 +1,16 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
+import { buildEventExtractionPrompt, sanitizeParsedEvent } from "@/lib/ai-event-prompt";
+import {
+  type ConcertRecord,
+  hasMinimumEventInfo,
+  isSameConcert,
+  mergeConcerts,
+  normalizeDateString,
+} from "@/lib/event-merge";
 
 // 빌드 타임에 정적 처리 금지 — 항상 런타임에서만 실행
 export const dynamic = "force-dynamic";
-
-// 제목 정규화 함수 (중복 체크용)
-function normalizeConcertTitle(title: string): string {
-  return title.toLowerCase().replace(/[\s\-_.,!?'"()\[\]]/g, "").replace(/[^\w가-힣]/g, "");
-}
-
-function areSimilarTitles(a: string, b: string): boolean {
-  const na = normalizeConcertTitle(a);
-  const nb = normalizeConcertTitle(b);
-  if (!na || !nb) return false;
-  if (na === nb) return true;
-  if (na.length >= 4 && nb.length >= 4 && (na.includes(nb) || nb.includes(na))) return true;
-  return false;
-}
-
-function normalizeDate(value: string): string {
-  if (!value) return "";
-  const match = value.match(/(\d{2,4})[./-](\d{1,2})[./-](\d{1,2})/);
-  if (!match) return "";
-  const [, y, m, d] = match;
-  const year = y.length === 2 ? `20${y}` : y;
-  return `${year}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
-}
 
 // Vercel Cron Job 또는 외부 스케줄러에서 GET으로 호출합니다.
 // 보안을 위해 CRON_SECRET 과 일치하는 secret 파라미터가 있어야 실행됩니다.
@@ -79,9 +64,9 @@ export async function GET(req: Request) {
       return NextResponse.json({ success: true, message: "수집할 활성 계정이 없습니다." });
     }
 
-    // 기존 events 목록 로드 (중복 체크용)
+    // 기존 events 목록 로드 (중복 체크 + 병합용)
     const existingEventsSnap = await db.collection("events").get();
-    const existingEvents = existingEventsSnap.docs.map((d: any) => ({
+    const existingEvents: ConcertRecord[] = existingEventsSnap.docs.map((d: any) => ({
       id: d.id,
       ...d.data(),
     }));
@@ -89,6 +74,8 @@ export async function GET(req: Request) {
     const results = [];
     let newCandidateCount = 0;
     let autoPublishCount = 0;
+    let mergedCount = 0;
+    let skippedCount = 0;
 
     for (const docSnap of sourcesSnap.docs) {
       const accountData = docSnap.data();
@@ -152,46 +139,16 @@ export async function GET(req: Request) {
           continue;
         }
 
-        // [STEP 2] OpenAI로 공연 포스터 선별 및 정보 추출
+        // [STEP 2] OpenAI로 공연 포스터 선별 및 정보 추출 (공유 프롬프트 사용)
         const postsText = newPosts.map((p, i) => `[게시물 ${i}]\n- 캡션: ${p.caption}`).join("\n\n");
-
-        const prompt = `
-당신은 인디 밴드와 공연 관련 게시물을 분석하는 AI입니다. (@${accountName} 계정의 게시물)
-
-★ [매우 중요한 연도 및 날짜 규칙] ★
-1. 현재 기준 연도는 무조건 "2026년" 입니다.
-2. 본문에 연도가 생략되어 있고 월/일만 있다면 무조건 2026년으로 간주하세요. (예: 4월 4일 -> 2026-04-04)
-3. 현재 날짜(2026년)를 기준으로 이미 지나간 과거의 공연 정보는 절대 추출하지 말고 무시하세요.
-
-아래 제공된 최근 게시물 목록 중 **"앞으로 개최될 예정인 오프라인 라이브 공연이나 콘서트를 가장 잘 홍보하는 포스터 게시물"**을 단 하나 골라서 핵심 정보를 추출하세요.
-
-[엄격한 무시 조건]
-- 이미 지나간 공연 후기, 감사 인사, 리캡 영상은 절대 고르면 안 됩니다.
-- 일상 글, 굿즈 발매, 뮤비 티저, 멤버 잡담 등은 무시하세요.
-- 모든 게시물이 이에 해당하면 chosenIndex를 -1로 둡니다.
-
-[게시물 목록]
-${postsText}
-
-[출력 JSON 구조]
-반드시 하나의 JSON 객체로만 응답하세요.
-1. "chosenIndex": 선택한 게시물의 인덱스 번호 (0, 1, 2). 없으면 -1
-2. "title": 공연 제목 (없으면 메인 밴드명, 아예 없으면 "")
-3. "date": 공연 날짜 (반드시 "YYYY-MM-DD" 형태로 정규화, 없으면 "")
-4. "time": 공연 시작 시간 (반드시 "HH:mm" 24시간제, 없으면 "")
-5. "venueName": 장소명 (클럽명이나 라이브홀 이름, 없으면 "")
-6. "artistNames": 라인업 밴드들 (반드시 쉼표로만 구분, 없으면 "")
-7. "ticketUrl": 예매처 안내사항 (계좌번호 또는 URL, 없으면 "")
-8. "price": 티켓 가격 (예: "예매 30,000원, 현매 35,000원", 없으면 "")
-    `;
 
         const aiRes = await openai.chat.completions.create({
           model: "gpt-4o-mini",
-          messages: [{ role: "user", content: prompt }],
+          messages: [{ role: "user", content: buildEventExtractionPrompt(postsText, accountName) }],
           response_format: { type: "json_object" },
         });
 
-        const parsedInfo = JSON.parse(aiRes.choices[0].message.content || "{}");
+        const parsedInfo = sanitizeParsedEvent(JSON.parse(aiRes.choices[0].message.content || "{}"));
 
         // [STEP 3] 새 게시물 모두 raw_posts에 저장 (중복 방지용)
         let targetRawPostId = "";
@@ -211,49 +168,73 @@ ${postsText}
           if (i === bestIndex) targetRawPostId = rawRef.id;
         }
 
-        // [STEP 4] AI 판단 결과에 따라 자동 등록 vs 승인 큐 분기
-        if (parsedInfo.chosenIndex !== -1) {
+        // [STEP 4] AI 판단 결과에 따라 분기:
+        //   정보 부족 → 수집 안 함 / 기존 공연과 동일 → 병합 업데이트 / 완전 → 자동 발행 / 장소만 누락 → 승인 큐
+        if (parsedInfo.chosenIndex === -1) {
+          console.log(`[CRON][${accountName}] 공연 게시물 아님으로 판별 → 수집 생략`);
+          results.push({ accountName, status: "skip", reason: "not concert post" });
+        } else if (!hasMinimumEventInfo(parsedInfo)) {
+          // 최소 기준(제목+날짜) 미달 → 아예 수집하지 않음
+          skippedCount++;
+          console.log(`[CRON][${accountName}] 정보 부족(제목/날짜 누락) → 수집 생략`);
+          results.push({ accountName, status: "skip", reason: "insufficient info" });
+        } else {
           const realPost = newPosts[bestIndex];
 
-          // 필수 필드 완전성 검증
-          const hasTitle = !!parsedInfo.title;
-          const hasDate = !!parsedInfo.date;
-          const hasVenue = !!parsedInfo.venueName;
-          const isComplete = hasTitle && hasDate && hasVenue;
+          const incoming: ConcertRecord = {
+            title: parsedInfo.title,
+            date: normalizeDateString(parsedInfo.date),
+            endDate: normalizeDateString(parsedInfo.endDate),
+            time: parsedInfo.time,
+            venueName: parsedInfo.venueName,
+            artistNames: parsedInfo.artistNames,
+            sourceUrl: parsedInfo.ticketUrl,
+            instagramUrl: realPost.instaLink || "",
+            price: parsedInfo.price,
+            posterUrl: realPost.posterUrl || "",
+            dayLineups: parsedInfo.dayLineups.map((d) => ({
+              date: normalizeDateString(d.date),
+              artists: d.artists,
+            })).filter((d) => d.date),
+          };
 
-          // 중복 체크: 같은 날짜 + 같은 장소 + 유사 제목이면 스킵
-          const normalizedParsedDate = normalizeDate(parsedInfo.date || "");
-          const isDuplicate = existingEvents.some((ev: any) => {
-            const sameDateAndVenue =
-              normalizeDate(ev.date || "") === normalizedParsedDate &&
-              normalizeConcertTitle(ev.venueName || "") === normalizeConcertTitle(parsedInfo.venueName || "") &&
-              normalizeConcertTitle(ev.venueName || "").length > 0;
-            return sameDateAndVenue && areSimilarTitles(ev.title || "", parsedInfo.title || "");
-          });
+          // 같은 공연이 이미 등록되어 있으면 → 병합 업데이트 (페스티벌 라인업 추가/수정 자동 반영)
+          const matched = existingEvents.find((ev) => isSameConcert(ev, incoming));
 
-          if (isDuplicate) {
-            console.log(`[CRON][${accountName}] 중복 공연 감지 → "${parsedInfo.title}" 등록 스킵`);
-            results.push({ accountName, status: "skip", reason: "duplicate event" });
-          } else if (isComplete) {
-            // ✅ 완전한 정보 → events에 직접 등록 (자동 발행)
-            await db.collection("events").add({
-              title: parsedInfo.title,
-              date: parsedInfo.date,
-              time: parsedInfo.time || "",
-              venueName: parsedInfo.venueName,
-              artistNames: parsedInfo.artistNames || "",
-              sourceUrl: parsedInfo.ticketUrl || "",
-              instagramUrl: realPost.instaLink || "",
-              price: parsedInfo.price || "",
-              posterUrl: realPost.posterUrl || "",
+          if (matched && matched.id) {
+            const merged = mergeConcerts(matched, incoming);
+            await db.collection("events").doc(matched.id).update({
+              ...merged,
+              updatedAt: FieldValue.serverTimestamp(),
+            });
+            Object.assign(matched, merged);
+            mergedCount++;
+            console.log(`[CRON][${accountName}] 🔄 기존 공연에 병합: "${merged.title}"`);
+            results.push({ accountName, status: "merged", title: merged.title });
+          } else if (incoming.venueName) {
+            // ✅ 완전한 정보(제목+날짜+장소) → events에 직접 등록 (자동 발행)
+            const payload = {
+              title: incoming.title,
+              date: incoming.date,
+              endDate: incoming.endDate || "",
+              time: incoming.time || "",
+              venueName: incoming.venueName,
+              artistNames: incoming.artistNames || "",
+              sourceUrl: incoming.sourceUrl || "",
+              instagramUrl: incoming.instagramUrl || "",
+              price: incoming.price || "",
+              posterUrl: incoming.posterUrl || "",
+              dayLineups: incoming.dayLineups || [],
               createdAt: FieldValue.serverTimestamp(),
               autoPublished: true, // 자동 발행 표시
-            });
+            };
+            const ref = await db.collection("events").add(payload);
+            existingEvents.push({ id: ref.id, ...payload });
             autoPublishCount++;
-            console.log(`[CRON][${accountName}] ✅ 자동 발행 완료: "${parsedInfo.title}"`);
-            results.push({ accountName, status: "auto-published", title: parsedInfo.title });
+            console.log(`[CRON][${accountName}] ✅ 자동 발행 완료: "${incoming.title}"`);
+            results.push({ accountName, status: "auto-published", title: incoming.title });
           } else {
-            // ⏳ 불완전한 정보 → candidate_events로 (수동 승인 대기)
+            // ⏳ 제목+날짜는 있으나 장소 누락 → candidate_events로 (수동 승인 대기)
             await db.collection("candidate_events").add({
               rawPostId: targetRawPostId,
               sourceAccountId: accountId,
@@ -261,24 +242,23 @@ ${postsText}
               instaLink: realPost.instaLink,
               caption: realPost.caption,
               posterUrl: realPost.posterUrl,
-              parsedTitle: parsedInfo.title || "",
-              parsedDate: parsedInfo.date || "",
-              parsedTime: parsedInfo.time || "",
-              parsedVenue: parsedInfo.venueName || "",
-              parsedArtists: parsedInfo.artistNames || "",
-              parsedTicket: parsedInfo.ticketUrl || "",
-              parsedPrice: parsedInfo.price || "",
+              parsedTitle: incoming.title || "",
+              parsedDate: incoming.date || "",
+              parsedEndDate: incoming.endDate || "",
+              parsedTime: incoming.time || "",
+              parsedVenue: "",
+              parsedArtists: incoming.artistNames || "",
+              parsedTicket: incoming.sourceUrl || "",
+              parsedPrice: incoming.price || "",
+              parsedDayLineups: incoming.dayLineups || [],
               confidence: 0.9,
-              notes: "Cron Job: 정보 부족으로 수동 승인 필요",
+              notes: "Cron Job: 장소 정보 누락으로 수동 승인 필요",
               createdAt: FieldValue.serverTimestamp(),
             });
             newCandidateCount++;
-            console.log(`[CRON][${accountName}] ⏳ 승인 큐 상신: "${parsedInfo.title || '(제목 없음)'}" (missing: ${!hasTitle ? 'title ' : ''}${!hasDate ? 'date ' : ''}${!hasVenue ? 'venue' : ''})`);
-            results.push({ accountName, status: "queued", title: parsedInfo.title || "(제목 없음)" });
+            console.log(`[CRON][${accountName}] ⏳ 승인 큐 상신: "${incoming.title}" (장소 누락)`);
+            results.push({ accountName, status: "queued", title: incoming.title });
           }
-        } else {
-          console.log(`[CRON][${accountName}] 공연 포스터 아님으로 판별 → 큐 상신 생략`);
-          results.push({ accountName, status: "skip", reason: "not concert post" });
         }
 
         // [STEP 5] 마지막 수집시간 업데이트
@@ -292,7 +272,7 @@ ${postsText}
       }
     }
 
-    const summary = `${sourcesSnap.size}개 계정 순회 완료. 자동 발행 ${autoPublishCount}건, 승인 대기 ${newCandidateCount}건.`;
+    const summary = `${sourcesSnap.size}개 계정 순회 완료. 자동 발행 ${autoPublishCount}건, 병합 ${mergedCount}건, 승인 대기 ${newCandidateCount}건, 정보 부족 생략 ${skippedCount}건.`;
     console.log(`[CRON] ${summary}`);
 
     return NextResponse.json({

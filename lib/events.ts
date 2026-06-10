@@ -1,10 +1,15 @@
 // 공연 이벤트 도메인 유틸리티 — 서버 컴포넌트와 클라이언트 컴포넌트 양쪽에서 사용됩니다.
 // 순수 함수만 포함하므로 "use client" 지시문이 없습니다.
 
+import { isSameConcert, mergeConcerts } from "./event-merge";
+
+export type DayLineup = { date: string; artists: string };
+
 export type EventItem = {
   id: string;
   title?: string;
   date?: string;
+  endDate?: string; // 멀티데이(페스티벌) 종료일. 하루짜리는 빈 문자열
   time?: string;
   venueName?: string;
   artistNames?: string;
@@ -12,6 +17,7 @@ export type EventItem = {
   instagramUrl?: string;
   price?: string;
   posterUrl?: string;
+  dayLineups?: DayLineup[]; // 날짜별 라인업 (페스티벌)
 };
 
 export function toText(value: unknown): string {
@@ -65,11 +71,42 @@ export function isFutureEvent(event: EventItem) {
   const date = normalizeDate(event.date);
   if (!date) return false;
 
-  const eventEnd = new Date(`${date}T23:59:59`).getTime();
+  // 멀티데이 공연은 종료일 기준으로 판정 (진행 중인 페스티벌도 노출)
+  const endDate = normalizeDate(event.endDate) || date;
+  const eventEnd = new Date(`${endDate}T23:59:59`).getTime();
   const endOfToday = new Date();
   endOfToday.setHours(23, 59, 59, 999);
 
   return eventEnd > endOfToday.getTime();
+}
+
+// 공연이 진행되는 모든 날짜 키(YYYY-MM-DD) 목록. 달력 표시용. (최대 21일로 제한)
+export function getEventDates(event: EventItem): string[] {
+  const start = normalizeDate(event.date);
+  if (!start) return [];
+
+  const end = normalizeDate(event.endDate);
+  if (!end || end <= start) return [start];
+
+  const dates: string[] = [];
+  const cursor = new Date(`${start}T00:00:00`);
+  const endTime = new Date(`${end}T00:00:00`).getTime();
+  if (Number.isNaN(cursor.getTime()) || Number.isNaN(endTime)) return [start];
+
+  while (cursor.getTime() <= endTime && dates.length < 21) {
+    dates.push(
+      `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`
+    );
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return dates;
+}
+
+// 특정 날짜의 라인업 (날짜별 라인업이 있는 페스티벌용). 없으면 빈 문자열.
+export function getLineupForDate(event: EventItem, dateKey: string): string {
+  if (!event.dayLineups?.length || !dateKey) return "";
+  const found = event.dayLineups.find((d) => normalizeDate(d.date) === dateKey);
+  return found?.artists || "";
 }
 
 export function isKoreanEvent(event: EventItem) {
@@ -115,82 +152,52 @@ export function isFestivalEvent(event: EventItem) {
   return false;
 }
 
+// 뷰어 표시용 중복 제거 — 같은 공연(한/영 표기, 제목 상이, 라인업 겹침 포함)을
+// 하나로 병합합니다. 병합 시 한국어 표기가 우선됩니다. (lib/event-merge 공용 로직 사용)
 export function deduplicateEvents(events: EventItem[]): EventItem[] {
-  const merged = new Map<string, EventItem>();
+  const result: EventItem[] = [];
 
-  const getScore = (e: EventItem) => {
-    let score = 0;
-    if (e.title) score += 2;
-    if (e.venueName) score += 1;
-    if (e.artistNames) score += 1;
-    if (e.price) score += 1;
-    if (e.time) score += 1;
-    if (/[가-힣]/.test(e.title || "")) score += 1; // 한글 제목 우선
-    return score;
-  };
-
-  const getDedupeKey = (e: EventItem) => {
-    const date = normalizeDate(e.date);
-    const title = (e.title || "").toLowerCase().replace(/\s+/g, "");
-
-    // 주요 페스티벌 묶기 (한/영 혼용 방지)
-    const festKeywords = [
-      ["펜타포트", "pentaport"],
-      ["원유니버스", "oneuniverse"],
-      ["dmz", "디엠지", "피스트레인", "peacetrain"],
-      ["점프", "jumf", "전주얼티밋"],
-      ["그랜드민트", "gmf", "grandmint"],
-      ["뷰티풀민트", "bml", "beautifulmint"],
-      ["부산국제록", "birs", "busanrock"],
-      ["사운드베리", "soundberry"],
-    ];
-
-    for (const group of festKeywords) {
-      if (group.some(k => title.includes(k))) {
-        return `${date}-${group[0]}`; // 페스티벌은 날짜 + 키워드로 통합
-      }
-    }
-
-    // 일반 공연은 날짜 + 띄어쓰기 제거 제목
-    return `${date}-${title}`;
-  };
-
-  events.forEach(ev => {
-    const key = getDedupeKey(ev);
-    if (!merged.has(key)) {
-      merged.set(key, { ...ev });
+  for (const ev of events) {
+    const idx = result.findIndex((existing) => isSameConcert(existing, ev));
+    if (idx === -1) {
+      result.push({ ...ev });
     } else {
-      const existing = merged.get(key)!;
-      if (getScore(ev) > getScore(existing)) {
-        const best = { ...ev };
-        if (!best.artistNames && existing.artistNames) best.artistNames = existing.artistNames;
-        if (!best.price && existing.price) best.price = existing.price;
-        if (!best.venueName && existing.venueName) best.venueName = existing.venueName;
-        merged.set(key, best);
-      } else {
-        const patched = { ...existing };
-        if (!patched.artistNames && ev.artistNames) patched.artistNames = ev.artistNames;
-        if (!patched.price && ev.price) patched.price = ev.price;
-        if (!patched.venueName && ev.venueName) patched.venueName = ev.venueName;
-        merged.set(key, patched);
-      }
+      const existing = result[idx];
+      result[idx] = { ...existing, ...mergeConcerts(existing, ev), id: existing.id };
     }
-  });
+  }
 
-  return Array.from(merged.values());
+  return result;
+}
+
+const WEEKDAYS_KO = ["일", "월", "화", "수", "목", "금", "토"];
+
+function formatDateLabel(dateKey: string, withYear: boolean) {
+  const parsed = new Date(`${dateKey}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return "";
+  const week = WEEKDAYS_KO[parsed.getDay()];
+  const base = `${String(parsed.getMonth() + 1).padStart(2, "0")}.${String(parsed.getDate()).padStart(2, "0")} (${week})`;
+  return withYear ? `${parsed.getFullYear()}.${base}` : base;
 }
 
 export function formatSchedule(event: EventItem) {
   const date = normalizeDate(event.date);
   if (!date) return "일정 미정";
 
-  const parsed = new Date(`${date}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) {
+  const startLabel = formatDateLabel(date, true);
+  if (!startLabel) {
     return [toText(event.date), toText(event.time)].filter(Boolean).join(" · ") || "일정 미정";
   }
 
-  const week = ["일", "월", "화", "수", "목", "금", "토"][parsed.getDay()];
-  return `${parsed.getFullYear()}.${String(parsed.getMonth() + 1).padStart(2, "0")}.${String(parsed.getDate()).padStart(2, "0")} (${week})${event.time ? ` · ${event.time}` : ""}`;
+  // 멀티데이: "2026.08.14 (금) ~ 08.16 (일)" 형태로 범위 표시
+  const endDate = normalizeDate(event.endDate);
+  if (endDate && endDate > date) {
+    const sameYear = endDate.slice(0, 4) === date.slice(0, 4);
+    const endLabel = formatDateLabel(endDate, !sameYear);
+    if (endLabel) return `${startLabel} ~ ${endLabel}`;
+  }
+
+  return `${startLabel}${event.time ? ` · ${event.time}` : ""}`;
 }
 
 function extractInstagramUrl(event: EventItem) {
@@ -267,10 +274,20 @@ export function formatPriceLines(value?: string) {
 }
 
 export function normalizeEvent(id: string, raw: Record<string, unknown>): EventItem {
+  const dayLineups = Array.isArray(raw.dayLineups)
+    ? (raw.dayLineups as unknown[])
+        .map((d) => {
+          const day = (d && typeof d === "object" ? d : {}) as Record<string, unknown>;
+          return { date: toText(day.date), artists: toText(day.artists) };
+        })
+        .filter((d) => d.date && d.artists)
+    : [];
+
   return {
     id,
     title: toText(raw.title),
     date: toText(raw.date),
+    endDate: toText(raw.endDate),
     time: toText(raw.time),
     venueName: toText(raw.venueName),
     artistNames: toText(raw.artistNames),
@@ -278,6 +295,7 @@ export function normalizeEvent(id: string, raw: Record<string, unknown>): EventI
     instagramUrl: toText(raw.instagramUrl),
     price: toText(raw.price),
     posterUrl: toText(raw.posterUrl),
+    dayLineups,
   };
 }
 
