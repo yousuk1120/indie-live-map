@@ -15,7 +15,8 @@ export default function AppHeader({
     <header className="mb-7 animate-fade-in md:mb-10">
       <div className="flex items-end justify-between gap-4">
         <div>
-          <p className="mb-2.5 text-[11px] font-extrabold uppercase tracking-[0.26em] text-[var(--accent)]">
+          <p className="label-mono mb-3 flex items-center gap-2.5 text-[var(--accent)]">
+            <span className="vinyl-disc h-5 w-5 shrink-0" style={{ width: 20, height: 20 }} aria-hidden />
             Live Club Map
           </p>
           <h1 className="text-[28px] font-extrabold leading-[1.12] tracking-[-0.035em] text-white md:text-[40px]">

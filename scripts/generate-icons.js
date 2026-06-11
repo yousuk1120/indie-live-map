@@ -74,60 +74,58 @@ function lerp(a, b, t) {
   return Math.round(a + (b - a) * t);
 }
 
+// LP판 디자인: 비닐 블랙 배경 + 그루브(동심원) + 번트 오렌지 라벨 + 스핀들 홀
 function drawIcon(size) {
   const px = Buffer.alloc(size * size * 4);
-  const bgTop = hexToRgb("#12121f");
-  const bgBottom = hexToRgb("#08080d");
+  const bg = hexToRgb("#111111");
+  const grooveDark = hexToRgb("#141414");
+  const grooveLight = hexToRgb("#1f1f1f");
+  const rim = hexToRgb("#2e2e2e");
+  const labelOuter = hexToRgb("#e87c51");
+  const labelInner = hexToRgb("#d95a2b");
+  const hole = hexToRgb("#0c0c0c");
 
-  // 배경: 위→아래 미세한 그라데이션
+  const cx = size / 2;
+  const cy = size / 2;
+  // maskable 안전 영역(중앙 80%) 안에 디스크 배치
+  const discR = size * 0.4;
+  const labelR = size * 0.135;
+  const holeR = size * 0.032;
+  const grooveStep = Math.max(2, Math.round(size * 0.018));
+
   for (let y = 0; y < size; y++) {
-    const t = y / size;
-    const r = lerp(bgTop[0], bgBottom[0], t);
-    const g = lerp(bgTop[1], bgBottom[1], t);
-    const b = lerp(bgTop[2], bgBottom[2], t);
     for (let x = 0; x < size; x++) {
+      const dx = x - cx + 0.5;
+      const dy = y - cy + 0.5;
+      const dist = Math.sqrt(dx * dx + dy * dy);
       const i = (y * size + x) * 4;
-      px[i] = r; px[i + 1] = g; px[i + 2] = b; px[i + 3] = 255;
-    }
-  }
 
-  // 이퀄라이저 바 (maskable 안전 영역인 중앙 60% 안에 배치)
-  const barTop = hexToRgb("#c4b5fd");
-  const barBottom = hexToRgb("#7c3aed");
-  const bars = [
-    { cx: 0.30, h: 0.20 },
-    { cx: 0.4334, h: 0.34 },
-    { cx: 0.5667, h: 0.26 },
-    { cx: 0.70, h: 0.15 },
-  ];
-  const barWidth = Math.round(size * 0.085);
-  const baseline = Math.round(size * 0.67);
+      let color = bg;
 
-  for (const bar of bars) {
-    const barHeight = Math.round(size * bar.h);
-    const x0 = Math.round(size * bar.cx - barWidth / 2);
-    const yTop = baseline - barHeight;
-    const radius = Math.floor(barWidth / 2);
-
-    for (let y = yTop; y < baseline; y++) {
-      const t = (y - yTop) / barHeight;
-      const r = lerp(barTop[0], barBottom[0], t);
-      const g = lerp(barTop[1], barBottom[1], t);
-      const b = lerp(barTop[2], barBottom[2], t);
-
-      for (let x = x0; x < x0 + barWidth; x++) {
-        // 바 양 끝 모서리를 둥글게
-        const fromTop = y - yTop;
-        const fromBottom = baseline - 1 - y;
-        const edge = Math.min(fromTop, fromBottom);
-        if (edge < radius) {
-          const dx = Math.abs(x - (x0 + barWidth / 2 - 0.5));
-          const maxDx = Math.sqrt(Math.max(0, radius * radius - (radius - edge) * (radius - edge))) + barWidth / 2 - radius;
-          if (dx > maxDx) continue;
+      if (dist <= discR) {
+        if (dist <= holeR) {
+          color = hole;
+        } else if (dist <= labelR) {
+          // 라벨: 중심에서 바깥으로 미세한 그라데이션
+          const t = dist / labelR;
+          color = [
+            lerp(labelOuter[0], labelInner[0], t),
+            lerp(labelOuter[1], labelInner[1], t),
+            lerp(labelOuter[2], labelInner[2], t),
+          ];
+        } else if (dist >= discR - Math.max(1, size * 0.006)) {
+          color = rim;
+        } else {
+          // 그루브: 동심원 줄무늬
+          const band = Math.floor(dist / grooveStep) % 2;
+          color = band === 0 ? grooveDark : grooveLight;
         }
-        const i = (y * size + x) * 4;
-        px[i] = r; px[i + 1] = g; px[i + 2] = b; px[i + 3] = 255;
       }
+
+      px[i] = color[0];
+      px[i + 1] = color[1];
+      px[i + 2] = color[2];
+      px[i + 3] = 255;
     }
   }
 

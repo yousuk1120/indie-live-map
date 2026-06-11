@@ -10,41 +10,46 @@
 }
 
 /* ─────────────────────────────────────────────
-   Premium Ink & Violet Theme
-   딥 잉크 배경 + 바이올렛 액센트 — 고대비, 고급스러운 다크 모드
+   The Record Theme — LP판 컨셉
+   순수한 블랙 비닐 + 번트 오렌지 라벨 (yousuk-portfolio 디자인 시스템 기반)
    ───────────────────────────────────────────── */
 :root {
-  /* Backgrounds: 보랏빛이 감도는 딥 잉크 톤 */
-  --bg: #08080d;
-  --bg-elevated: #0d0d15;
-  --panel: #101019;
-  --panel-2: #171724;
-  --panel-3: #222233;
+  /* Backgrounds: 비닐 블랙 */
+  --bg: #111111;
+  --bg-elevated: #161616;
+  --panel: #161616;
+  --panel-2: #1a1a1a;
+  --panel-3: #222222;
+  --card-dark: #0f0f0f;
 
   /* Borders */
-  --line: rgba(255, 255, 255, 0.08);
-  --line-strong: rgba(255, 255, 255, 0.16);
+  --line: #2a2a2a;
+  --line-strong: #3d3d3d;
 
-  /* Text */
-  --text: #f5f5f8;
-  --text-secondary: #c6c6d2;
-  --muted: #8b8b9c;
+  /* Text: 잉크 위계 */
+  --text: #ffffff;
+  --text-secondary: #e0e0e0;
+  --muted: #a3a3a3;
+  --faint: #777777;
 
-  /* Accent: Violet */
-  --accent: #a78bfa;
-  --accent-2: #c4b5fd;
-  --accent-deep: #7c3aed;
-  --accent-soft: rgba(167, 139, 250, 0.1);
-  --accent-border: rgba(167, 139, 250, 0.35);
-  --accent-glow: rgba(124, 58, 237, 0.2);
+  /* Accent: 번트 오렌지 (레코드 라벨) */
+  --accent: #d95a2b;
+  --accent-2: #e87c51;
+  --accent-deep: #b8431a;
+  --accent-soft: rgba(217, 90, 43, 0.1);
+  --accent-border: rgba(217, 90, 43, 0.4);
+  --accent-glow: rgba(217, 90, 43, 0.18);
 
   --danger: #f87171;
   --success: #34d399;
 
-  /* Festival: Amber 포인트 (다크 배경 위 골드 톤) */
-  --fest-text: #fbbf24;
-  --fest-bg: rgba(251, 191, 36, 0.07);
-  --fest-border: rgba(251, 191, 36, 0.3);
+  /* Festival: 액센트 오렌지가 곧 하이라이트 */
+  --fest-text: #e87c51;
+  --fest-bg: rgba(217, 90, 43, 0.07);
+  --fest-border: rgba(217, 90, 43, 0.32);
+
+  /* 모노 라벨 (TRACK 번호, 와이드 트래킹 캡션) */
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
 
 @theme inline {
@@ -87,26 +92,67 @@ img {
 }
 
 ::selection {
-  background: rgba(167, 139, 250, 0.35);
+  background: rgba(217, 90, 43, 0.4);
   color: #fff;
 }
 
-/* ─── Background Aurora (장식용 글로우) ─── */
+/* ─── Background (장식용 — 은은한 웜 글로우) ─── */
 .bg-aurora {
   position: absolute;
   inset: 0;
   pointer-events: none;
   z-index: 0;
   background:
-    radial-gradient(ellipse 55% 32% at 12% -5%, rgba(124, 58, 237, 0.09), transparent 60%);
+    radial-gradient(ellipse 50% 28% at 10% -5%, rgba(217, 90, 43, 0.06), transparent 60%);
 }
 
 /* ─── Gradient Text ─── */
 .text-gradient {
-  background: linear-gradient(120deg, var(--accent-2) 0%, var(--accent) 45%, #818cf8 100%);
+  background: linear-gradient(120deg, var(--accent-2) 0%, var(--accent) 60%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+}
+
+/* ─── 모노 라벨: TRACK 번호 · 와이드 트래킹 캡션 ─── */
+.label-mono {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+/* ─── LP 디스크 (CSS 전용) ─── */
+@keyframes vinylSpin {
+  to { transform: rotate(360deg); }
+}
+
+.vinyl-disc {
+  position: relative;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at center, #0a0a0a 0%, #0a0a0a 26%, transparent 26.5%),
+    repeating-radial-gradient(circle at center, #1c1c1c 0px, #111 2px, #1c1c1c 4px);
+  border: 1px solid #2e2e2e;
+  animation: vinylSpin 4s linear infinite;
+}
+
+/* 레코드 라벨 (중앙 오렌지 원 + 스핀들 홀) */
+.vinyl-disc::before {
+  content: "";
+  position: absolute;
+  inset: 30%;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, var(--accent-2), var(--accent) 70%);
+}
+
+.vinyl-disc::after {
+  content: "";
+  position: absolute;
+  inset: 46%;
+  border-radius: 50%;
+  background: #111;
 }
 
 /* ─── Custom Scrollbar ─── */
@@ -117,11 +163,11 @@ img {
   background: transparent;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(167, 139, 250, 0.25);
+  background: rgba(217, 90, 43, 0.3);
   border-radius: 999px;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(167, 139, 250, 0.45);
+  background: rgba(217, 90, 43, 0.5);
 }
 
 /* ─── Panel Component ─── */

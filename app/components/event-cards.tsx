@@ -62,6 +62,8 @@ export function EventListRow({ event, index }: { event: EventItem; index: number
           className="min-w-0 flex-1 text-left"
         >
           <div className="mb-2 flex flex-wrap items-center gap-2">
+            <span className="label-mono text-[var(--faint)]">Track {String(index + 1).padStart(2, "0")}</span>
+            <span className="text-[var(--faint)]">·</span>
             <p className="text-xs font-medium text-[var(--muted)]">{formatSchedule(event)}</p>
             {daysTag && (
               <span

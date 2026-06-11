@@ -193,7 +193,7 @@ export default function MapView({
         window.kakao.maps.event.addListener(marker, "click", () => {
           setActiveVenue(bucket.venueName);
           infoWindow.setContent(
-            `<div style="padding:6px 12px;font-size:12px;font-weight:700;color:#111;white-space:nowrap;">${bucket.venueName}<span style="margin-left:6px;font-weight:500;color:#7c3aed;">${bucket.events.length}개 공연</span></div>`
+            `<div style="padding:6px 12px;font-size:12px;font-weight:700;color:#111;white-space:nowrap;">${bucket.venueName}<span style="margin-left:6px;font-weight:500;color:#d95a2b;">${bucket.events.length}개 공연</span></div>`
           );
           infoWindow.open(map, marker);
           map.panTo(position);

@@ -103,6 +103,7 @@ export default function TicketbookView() {
             tab === "upcoming" ? "bg-[var(--accent)] text-[#0a0a12] shadow-[0_2px_16px_var(--accent-glow)]" : "text-[var(--muted)] hover:text-white"
           }`}
         >
+          <span className="label-mono mr-2 opacity-70">Side A</span>
           저장한 공연 {saved.length > 0 && <span className="ml-1.5 tabular-nums">{saved.length}</span>}
         </button>
         <button
@@ -112,6 +113,7 @@ export default function TicketbookView() {
             tab === "history" ? "bg-[var(--accent)] text-[#0a0a12] shadow-[0_2px_16px_var(--accent-glow)]" : "text-[var(--muted)] hover:text-white"
           }`}
         >
+          <span className="label-mono mr-2 opacity-70">Side B</span>
           관람 기록 {records.length > 0 && <span className="ml-1.5 tabular-nums">{records.length}</span>}
         </button>
       </div>

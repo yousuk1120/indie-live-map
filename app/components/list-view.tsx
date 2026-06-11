@@ -86,8 +86,10 @@ export default function ListView({
           {/* ─── 오늘의 공연 (가로 스크롤 하이라이트) ─── */}
           {!searchQuery && todayEvents.length > 0 && (
             <section className="mb-8 animate-fade-in" style={{ animationDelay: "0.12s" }}>
-              <h2 className="mb-3 flex items-center gap-2 px-1 text-sm font-bold text-white">
-                <span className="live-dot" />
+              <h2 className="mb-3 flex items-center gap-2.5 px-1 text-sm font-bold text-white">
+                <span className="vinyl-disc shrink-0" style={{ width: 18, height: 18 }} aria-hidden />
+                <span className="label-mono text-[var(--accent)]">Now Playing</span>
+                <span className="text-[var(--faint)]">·</span>
                 오늘의 공연
               </h2>
               <div className="custom-scrollbar -mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 md:mx-0 md:px-0">
@@ -98,7 +100,7 @@ export default function ListView({
                     onClick={() => router.push(`/events/${event.id}`)}
                     className="w-[260px] shrink-0 snap-start rounded-2xl border border-[var(--accent-border)] bg-gradient-to-br from-[var(--accent-soft)] to-transparent p-4 text-left transition-all duration-300 hover:shadow-[0_4px_24px_var(--accent-glow)] active:scale-[0.97]"
                   >
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--accent)]">Tonight</p>
+                    <p className="label-mono text-[var(--accent)]">Tonight</p>
                     <p className="mt-1.5 line-clamp-2 text-sm font-bold leading-snug text-white">
                       {event.title || "제목 없는 공연"}
                     </p>
