@@ -19,6 +19,7 @@ export type EventItem = {
   price?: string;
   posterUrl?: string;
   timetableImageUrl?: string; // 주최측 타임테이블 이미지 (페스티벌)
+  ticketOpenAt?: string; // 티켓 예매 오픈 일시 "YYYY-MM-DD HH:mm"
   dayLineups?: DayLineup[]; // 날짜별 라인업 (페스티벌)
 };
 
@@ -236,8 +237,29 @@ function formatMoneyToken(token: string) {
   return `${Number(digits).toLocaleString("ko-KR")}원`;
 }
 
+// 금액 표기 통일: "1만원", "3만 5천원", "10,000 KRW", "₩10000" → 전부 "10,000원" 형식
 function normalizeMoneyInText(text: string) {
-  return text.replace(/\d[\d,\s]*원/g, (token) => formatMoneyToken(token));
+  let result = text;
+
+  // "1만원", "1.5만원", "3만 5천원"
+  result = result.replace(/(\d+(?:\.\d+)?)\s*만\s*(?:(\d)\s*천)?\s*원/g, (_, man, cheon) => {
+    const amount = Math.round(parseFloat(man) * 10000) + (cheon ? Number(cheon) * 1000 : 0);
+    return `${amount.toLocaleString("ko-KR")}원`;
+  });
+
+  // "5천원"
+  result = result.replace(/(\d)\s*천\s*원/g, (_, cheon) =>
+    `${(Number(cheon) * 1000).toLocaleString("ko-KR")}원`
+  );
+
+  // "KRW 10,000", "₩10,000", "10,000 KRW", "10000krw"
+  result = result.replace(/(?:KRW|₩)\s*([\d,]+)/gi, (_, num) => formatMoneyToken(num));
+  result = result.replace(/([\d,]+)\s*KRW/gi, (_, num) => formatMoneyToken(num));
+
+  // "10000원" → "10,000원" (쉼표 보정)
+  result = result.replace(/\d[\d,\s]*원/g, (token) => formatMoneyToken(token));
+
+  return result;
 }
 
 export function formatPriceLines(value?: string) {
@@ -261,6 +283,9 @@ export function formatPriceLines(value?: string) {
     new Set(
       parts.map((part) => {
         if (/free entry|무료/i.test(part)) return part;
+
+        // 숫자만 있는 가격("10000") → "10,000원"
+        if (/^[\d,]{4,}$/.test(part.trim())) return formatMoneyToken(part);
 
         const labelMatch = part.match(/(예매|현매|예판|당일|door)/i);
         const label = labelMatch ? labelMatch[1].replace(/^door$/i, "현매") : "";
@@ -311,6 +336,7 @@ export function normalizeEvent(id: string, raw: Record<string, unknown>): EventI
     price: toText(raw.price),
     posterUrl: toText(raw.posterUrl),
     timetableImageUrl: toText(raw.timetableImageUrl),
+    ticketOpenAt: toText(raw.ticketOpenAt),
     dayLineups,
   };
 }

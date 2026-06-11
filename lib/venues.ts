@@ -27,6 +27,9 @@ const VENUE_ALIAS_GROUPS: string[][] = [
   ["온스테이지", "onstage"],
   ["KT&G 상상마당", "상상마당", "상상마당 라이브홀", "ktg상상마당"],
   ["펜타포트", "pentaport", "펜타포트 락 페스티벌"],
+  ["송도달빛축제공원", "songdo moonlight festival park", "songdo moonlight festival park incheon", "달빛축제공원"],
+  ["난지한강공원", "nanji hangang park", "난지 한강공원"],
+  ["올림픽공원", "olympic park", "올림픽 공원"],
 ];
 
 const ALIAS_LOOKUP: Map<string, string> = (() => {

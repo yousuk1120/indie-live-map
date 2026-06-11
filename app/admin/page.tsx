@@ -755,7 +755,7 @@ function SourcesTab() {
                       continue;
                     }
 
-                    let parsedInfo = { title: "", date: "", endDate: "", time: "", venueName: "", artistNames: "", ticketUrl: "", price: "", chosenIndex: 0, dayLineups: [] as DayLineup[] };
+                    let parsedInfo = { title: "", date: "", endDate: "", time: "", venueName: "", artistNames: "", ticketUrl: "", price: "", ticketOpenAt: "", chosenIndex: 0, dayLineups: [] as DayLineup[] };
 
                     const aiRes = await fetch("/api/parse-event", {
                       method: "POST", headers: await adminApiHeaders(),
@@ -793,6 +793,7 @@ function SourcesTab() {
                         instagramUrl: realPost.instaLink || "",
                         price: parsedInfo.price || "",
                         posterUrl: realPost.posterUrl || "",
+                        ticketOpenAt: parsedInfo.ticketOpenAt || "",
                         dayLineups: (parsedInfo.dayLineups || []).map((d) => ({ date: normalizeDateString(d.date), artists: d.artists })).filter((d) => d.date),
                       };
 
@@ -817,6 +818,7 @@ function SourcesTab() {
                           instagramUrl: incoming.instagramUrl,
                           price: incoming.price,
                           posterUrl: incoming.posterUrl,
+                          ticketOpenAt: incoming.ticketOpenAt || "",
                           dayLineups: incoming.dayLineups || [],
                           createdAt: serverTimestamp(),
                           autoPublished: true,

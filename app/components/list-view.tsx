@@ -51,6 +51,22 @@ export default function ListView({
     [upcomingEvents]
   );
 
+  // 티켓 오픈 예정: ticketOpenAt이 현재 이후인 공연 (오픈 임박순)
+  const ticketOpenEvents = useMemo(() => {
+    const now = new Date();
+    return upcomingEvents
+      .map((event) => {
+        const raw = (event.ticketOpenAt || "").trim();
+        if (!raw) return null;
+        const parsed = new Date(raw.replace(" ", "T"));
+        if (Number.isNaN(parsed.getTime()) || parsed <= now) return null;
+        return { event, openAt: parsed };
+      })
+      .filter((item): item is { event: EventItem; openAt: Date } => item !== null)
+      .sort((a, b) => a.openAt.getTime() - b.openAt.getTime())
+      .slice(0, 10);
+  }, [upcomingEvents]);
+
   return (
     <>
       {/* ─── Search ─── */}
@@ -108,6 +124,38 @@ export default function ListView({
                       {event.venueName ? `📍 ${event.venueName}` : formatSchedule(event)}
                       {event.time ? ` · ${event.time}` : ""}
                     </p>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* ─── 티켓 오픈 예정 ─── */}
+          {!searchQuery && ticketOpenEvents.length > 0 && (
+            <section className="mb-8 animate-fade-in" style={{ animationDelay: "0.14s" }}>
+              <h2 className="mb-3 flex items-center gap-2 px-1 text-sm font-bold text-white">
+                <span className="label-mono text-[var(--accent)]">Ticket Open</span>
+                <span className="text-[var(--faint)]">·</span>
+                예매 오픈 예정
+              </h2>
+              <div className="custom-scrollbar -mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 md:mx-0 md:px-0">
+                {ticketOpenEvents.map(({ event, openAt }) => (
+                  <button
+                    key={event.id}
+                    type="button"
+                    onClick={() => router.push(`/events/${event.id}`)}
+                    className="w-[240px] shrink-0 snap-start rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-4 text-left transition-all duration-300 hover:border-[var(--accent-border)] active:scale-[0.97]"
+                  >
+                    <p className="text-xs font-bold tabular-nums text-[var(--accent-2)]">
+                      {openAt.getMonth() + 1}/{openAt.getDate()}{" "}
+                      {String(openAt.getHours()).padStart(2, "0")}:{String(openAt.getMinutes()).padStart(2, "0")} 오픈
+                    </p>
+                    <p className="mt-1.5 line-clamp-2 text-sm font-bold leading-snug text-white">
+                      {event.title || "제목 없는 공연"}
+                    </p>
+                    {event.venueName && (
+                      <p className="mt-2 text-xs text-[var(--muted)]">{event.venueName}</p>
+                    )}
                   </button>
                 ))}
               </div>

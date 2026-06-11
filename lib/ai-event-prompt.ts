@@ -11,6 +11,7 @@ export type ParsedEventInfo = {
   artistNames: string;
   ticketUrl: string;
   price: string;
+  ticketOpenAt: string; // 티켓 예매 오픈 일시 "YYYY-MM-DD HH:mm"
   dayLineups: Array<{ date: string; artists: string }>;
 };
 
@@ -24,6 +25,7 @@ export const EMPTY_PARSED_EVENT: ParsedEventInfo = {
   artistNames: "",
   ticketUrl: "",
   price: "",
+  ticketOpenAt: "",
   dayLineups: [],
 };
 
@@ -51,6 +53,7 @@ export function sanitizeParsedEvent(raw: unknown): ParsedEventInfo {
     artistNames: str(r.artistNames),
     ticketUrl: str(r.ticketUrl),
     price: str(r.price),
+    ticketOpenAt: str(r.ticketOpenAt),
     dayLineups,
   };
 }
@@ -100,6 +103,7 @@ ${postsText}
   "artistNames": "전체 라인업, 쉼표로만 구분 (없으면 \\"\\")",
   "ticketUrl": "예매 URL 또는 예매처 안내 (없으면 \\"\\")",
   "price": "티켓 가격 (예: \\"예매 30,000원, 현매 35,000원\\", 없으면 \\"\\")",
+  "ticketOpenAt": "티켓 예매 오픈 일시 \\"YYYY-MM-DD HH:mm\\" (본문에 '티켓 오픈' 일시가 명시된 경우만, 없으면 \\"\\")",
   "dayLineups": [{ "date": "YYYY-MM-DD", "artists": "그날 라인업, 쉼표 구분" }]
 }
 

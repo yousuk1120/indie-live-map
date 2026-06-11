@@ -223,6 +223,7 @@ export async function GET(req: Request) {
             instagramUrl: realPost.instaLink || "",
             price: parsedInfo.price,
             posterUrl: await persistPosterImage(realPost.posterUrl || ""),
+            ticketOpenAt: parsedInfo.ticketOpenAt || "",
             dayLineups: parsedInfo.dayLineups.map((d) => ({
               date: normalizeDateString(d.date),
               artists: d.artists,
@@ -255,6 +256,7 @@ export async function GET(req: Request) {
               instagramUrl: incoming.instagramUrl || "",
               price: incoming.price || "",
               posterUrl: incoming.posterUrl || "",
+              ticketOpenAt: incoming.ticketOpenAt || "",
               dayLineups: incoming.dayLineups || [],
               createdAt: FieldValue.serverTimestamp(),
               autoPublished: true, // 자동 발행 표시

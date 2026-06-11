@@ -124,8 +124,8 @@ export default function CalendarView({
                   cell.key === selectedDate
                     ? "bg-[var(--accent)] shadow-[0_4px_24px_var(--accent-glow)]"
                     : cell.events.length > 0
-                    ? "border border-[var(--line)] bg-[var(--panel-2)] hover:border-[var(--accent-border)] hover:bg-[var(--panel-3)]"
-                    : "hover:bg-[var(--panel-2)]"
+                    ? "border border-[var(--line-strong)] bg-[#1f1f1f] hover:border-[var(--accent-border)] hover:bg-[var(--panel-3)]"
+                    : "opacity-60 hover:opacity-100 hover:bg-[var(--panel-2)]"
                 }`}
               >
                 <span className={`text-sm font-semibold ${
@@ -134,17 +134,18 @@ export default function CalendarView({
                   dayOfWeek === 6 ? "text-sky-400/80" : "text-white"
                 }`}>{cell.day}</span>
                 {cell.events.length > 0 && (
-                  <div className="mt-1 flex justify-center gap-0.5">
+                  <div className="mt-1 flex justify-center gap-[3px]">
                     {Array.from({ length: Math.min(cell.events.length, 3) }).map((_, i) => (
                       <span
                         key={i}
-                        className={`h-1 w-1 rounded-full ${
+                        className={`h-1.5 w-1.5 rounded-full ${
                           cell.key === selectedDate
                             ? "bg-[#111]/60"
                             : isFestivalEvent(cell.events[i])
                             ? "bg-[var(--accent-2)]"
-                            : "bg-white/80"
+                            : "bg-white/90"
                         }`}
+                        style={{ width: 6, height: 6 }}
                       />
                     ))}
                   </div>

@@ -18,6 +18,7 @@ import { splitArtists } from "@/lib/event-merge";
 import { venueGroupKey } from "@/lib/venues";
 import { useTicketbook } from "@/lib/ticketbook";
 import { downloadEventIcs } from "@/lib/ics";
+import { shareEventImage } from "@/lib/share-image";
 
 function extractExternalUrl(value?: string) {
   const raw = toText(value);
@@ -129,6 +130,15 @@ export default function EventDetailClient({ event }: { event: EventItem }) {
               title="기기 캘린더 앱에 일정 추가 (.ics)"
             >
               캘린더 추가
+            </button>
+
+            <button
+              type="button"
+              onClick={() => shareEventImage(event)}
+              className="secondary-btn"
+              title="LP 카드 이미지로 공유 (인스타 스토리/피드용)"
+            >
+              이미지 공유
             </button>
 
             <a href={instagramUrl} target="_blank" rel="noreferrer" className="primary-btn">

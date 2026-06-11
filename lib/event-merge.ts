@@ -23,6 +23,7 @@ export type ConcertRecord = {
   price?: string;
   posterUrl?: string;
   timetableImageUrl?: string;
+  ticketOpenAt?: string; // 티켓 예매 오픈 일시 "YYYY-MM-DD HH:mm"
   dayLineups?: DayLineup[];
 };
 
@@ -181,7 +182,10 @@ export function isSameConcert(a: ConcertRecord, b: ConcertRecord): boolean {
   const venueA = normalizeVenueKey(a.venueName);
   const venueB = normalizeVenueKey(b.venueName);
   const venueEqual = !!venueA && venueA === venueB;
-  const venueCompatible = !venueA || !venueB || venueA === venueB;
+  // 장소 호환: 한쪽이 비었거나, 같거나, 접두 관계("...Park" vs "...Park, Incheon")
+  const venueCompatible =
+    !venueA || !venueB || venueA === venueB ||
+    venueA.startsWith(venueB) || venueB.startsWith(venueA);
 
   if (areSimilarTitles(a.title || "", b.title || "") && venueCompatible) return true;
 
@@ -280,6 +284,7 @@ export function mergeConcerts(existing: ConcertRecord, incoming: ConcertRecord):
     price: priceB.length > priceA.length ? priceB : priceA,
     posterUrl: pickNonEmpty(existing.posterUrl, incoming.posterUrl),
     timetableImageUrl: pickNonEmpty(existing.timetableImageUrl, incoming.timetableImageUrl),
+    ticketOpenAt: pickNonEmpty(existing.ticketOpenAt, incoming.ticketOpenAt),
     dayLineups,
   };
 }

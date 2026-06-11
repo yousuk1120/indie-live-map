@@ -31,7 +31,7 @@ service cloud.firestore {
       return d.keys().hasOnly([
           'title', 'date', 'endDate', 'time', 'venueName', 'artistNames',
           'sourceUrl', 'instagramUrl', 'price', 'posterUrl', 'timetableImageUrl',
-          'dayLineups', 'createdAt', 'updatedAt', 'autoPublished'
+          'ticketOpenAt', 'dayLineups', 'createdAt', 'updatedAt', 'autoPublished'
         ])
         && d.title is string
         && d.title.size() > 0
@@ -46,6 +46,7 @@ service cloud.firestore {
         && isOptionalString(d, 'price', 500)
         && isOptionalString(d, 'posterUrl', 2000)
         && isOptionalString(d, 'timetableImageUrl', 2000)
+        && isOptionalString(d, 'ticketOpenAt', 60)
         // 날짜별 라인업: 멀티데이 페스티벌용 (최대 30일)
         && (!('dayLineups' in d) || (d.dayLineups is list && d.dayLineups.size() <= 30))
         && (!('autoPublished' in d) || d.autoPublished is bool);
