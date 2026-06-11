@@ -17,6 +17,7 @@ import {
 import { splitArtists } from "@/lib/event-merge";
 import { venueGroupKey } from "@/lib/venues";
 import { useTicketbook } from "@/lib/ticketbook";
+import { downloadEventIcs } from "@/lib/ics";
 
 function extractExternalUrl(value?: string) {
   const raw = toText(value);
@@ -116,9 +117,18 @@ export default function EventDetailClient({ event }: { event: EventItem }) {
             <button
               type="button"
               onClick={() => toggleSave(event)}
-              className={`secondary-btn ${saved ? "border-[var(--accent-border)] bg-[var(--accent-soft)] text-[var(--accent)]" : ""}`}
+              className={`secondary-btn ${saved ? "border-[var(--accent-border)] bg-[var(--accent-soft)] text-[var(--accent-2)]" : ""}`}
             >
               {saved ? "★ 저장됨" : "☆ 티켓북에 저장"}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => downloadEventIcs(event)}
+              className="secondary-btn"
+              title="기기 캘린더 앱에 일정 추가 (.ics)"
+            >
+              캘린더 추가
             </button>
 
             <a href={instagramUrl} target="_blank" rel="noreferrer" className="primary-btn">

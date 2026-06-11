@@ -8,10 +8,21 @@ import {
   type EventItem,
   prepareUpcomingEvents,
   venueSearchCandidates,
+  isFestivalEvent,
+  getEventDates,
   toText,
 } from "@/lib/events";
 import { venueGroupKey, canonicalVenueName } from "@/lib/venues";
 import { ScheduleRow } from "./event-cards";
+
+// LP 라벨 스타일 커스텀 마커 (페스티벌=오렌지, 일반=화이트)
+function markerSvgDataUri(fill: string): string {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30"><circle cx="15" cy="15" r="13" fill="#111111" stroke="#3d3d3d" stroke-width="1"/><circle cx="15" cy="15" r="8" fill="${fill}"/><circle cx="15" cy="15" r="2.4" fill="#111111"/></svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+const FESTIVAL_MARKER_COLOR = "#E87C51";
+const REGULAR_MARKER_COLOR = "#FFFFFF";
 
 declare global {
   interface Window {
@@ -183,7 +194,16 @@ export default function MapView({
       };
 
       const addMarker = (bucket: VenueBucket, position: any) => {
-        const marker = new window.kakao.maps.Marker({ map, position });
+        // 페스티벌 진행 공연장은 오렌지, 일반 공연장은 화이트 마커
+        const hasFestival = bucket.events.some(
+          (event) => isFestivalEvent(event) || getEventDates(event).length > 1
+        );
+        const markerImage = new window.kakao.maps.MarkerImage(
+          markerSvgDataUri(hasFestival ? FESTIVAL_MARKER_COLOR : REGULAR_MARKER_COLOR),
+          new window.kakao.maps.Size(30, 30),
+          { offset: new window.kakao.maps.Point(15, 15) }
+        );
+        const marker = new window.kakao.maps.Marker({ map, position, image: markerImage });
         markersRef.current.push(marker);
         venuePositionsRef.current.set(bucket.venueName, position);
         bounds.extend(position);
@@ -289,9 +309,15 @@ export default function MapView({
             <h2 className="mr-2 truncate text-sm font-semibold text-white">
               {activeVenue ? activeVenue : "공연장 정보"}
             </h2>
-            <div className="flex shrink-0 gap-2 text-[10px] font-bold">
-              <span className="rounded-md border border-[var(--fest-border)] bg-[var(--fest-bg)] px-1.5 py-0.5 text-[var(--fest-text)]">페스티벌</span>
-              <span className="rounded-md bg-white/10 px-1.5 py-0.5 text-white/70">일반</span>
+            <div className="flex shrink-0 items-center gap-3 text-[10px] font-bold">
+              <span className="flex items-center gap-1 text-[var(--accent-2)]">
+                <span className="inline-block h-2.5 w-2.5 rounded-full border border-[#3d3d3d] bg-[#E87C51]" />
+                페스티벌
+              </span>
+              <span className="flex items-center gap-1 text-white/80">
+                <span className="inline-block h-2.5 w-2.5 rounded-full border border-[#3d3d3d] bg-white" />
+                일반
+              </span>
             </div>
           </div>
 

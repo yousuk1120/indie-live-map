@@ -126,7 +126,7 @@ export default function TicketbookView() {
               {[...saved]
                 .sort((a, b) => (normalizeDate(a.date) < normalizeDate(b.date) ? -1 : 1))
                 .map((event, idx) => (
-                  <EventListRow key={event.id} event={event} index={idx} />
+                  <EventListRow key={event.id} event={event} index={idx} showCalendarAdd />
                 ))}
             </div>
           ) : (

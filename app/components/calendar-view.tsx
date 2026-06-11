@@ -101,8 +101,8 @@ export default function CalendarView({
             </button>
           </div>
           <div className="flex gap-3 text-[11px] font-semibold">
-            <span className="flex items-center gap-1.5 text-[var(--fest-text)]"><span className="h-2 w-2 rounded-full bg-[var(--fest-text)]" />페스티벌</span>
-            <span className="flex items-center gap-1.5 text-[var(--accent)]"><span className="h-2 w-2 rounded-full bg-[var(--accent)]" />일반 공연</span>
+            <span className="flex items-center gap-1.5 text-[var(--accent-2)]"><span className="h-2 w-2 rounded-full bg-[var(--accent-2)]" />페스티벌</span>
+            <span className="flex items-center gap-1.5 text-white/80"><span className="h-2 w-2 rounded-full bg-white/80" />일반 공연</span>
           </div>
         </div>
 
@@ -140,10 +140,10 @@ export default function CalendarView({
                         key={i}
                         className={`h-1 w-1 rounded-full ${
                           cell.key === selectedDate
-                            ? "bg-[#0a0a12]/60"
+                            ? "bg-[#111]/60"
                             : isFestivalEvent(cell.events[i])
-                            ? "bg-[var(--fest-text)]"
-                            : "bg-[var(--accent)]"
+                            ? "bg-[var(--accent-2)]"
+                            : "bg-white/80"
                         }`}
                       />
                     ))}

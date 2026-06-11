@@ -12,23 +12,27 @@ export default function AppHeader({
   action?: ReactNode;
 }) {
   return (
-    <header className="mb-7 animate-fade-in md:mb-10">
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <p className="label-mono mb-3 flex items-center gap-2.5 text-[var(--accent)]">
-            <span className="vinyl-disc h-5 w-5 shrink-0" style={{ width: 20, height: 20 }} aria-hidden />
-            Live Club Map
-          </p>
-          <h1 className="text-[28px] font-extrabold leading-[1.12] tracking-[-0.035em] text-white md:text-[40px]">
+    <header className="mb-6 animate-fade-in md:mb-9">
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <p className="label-mono mb-2 text-[var(--accent)]">Live Club Map</p>
+          <h1 className="text-[20px] font-extrabold leading-[1.15] tracking-[-0.03em] text-white md:text-[28px]">
             {title}
           </h1>
           {subtitle && (
-            <p className="mt-2.5 max-w-md text-[13px] leading-relaxed text-[var(--muted)]">{subtitle}</p>
+            <p className="mt-2 max-w-md text-xs leading-relaxed text-[var(--muted)]">{subtitle}</p>
           )}
         </div>
-        {action}
+        {/* 액션이 없으면 회전하는 LP 디스크가 헤더의 시그니처 */}
+        {action ?? (
+          <span
+            className="vinyl-disc shrink-0"
+            style={{ width: 64, height: 64 }}
+            aria-hidden
+          />
+        )}
       </div>
-      <div className="mt-6 h-px bg-[var(--line)]" />
+      <div className="mt-5 h-px bg-[var(--line)]" />
     </header>
   );
 }

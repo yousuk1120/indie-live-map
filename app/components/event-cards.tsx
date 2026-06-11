@@ -14,6 +14,7 @@ import {
   getLineupForDate,
 } from "@/lib/events";
 import { useTicketbook } from "@/lib/ticketbook";
+import { downloadEventIcs } from "@/lib/ics";
 
 /* 메타 정보용 미니 아이콘 (이모지 대체 — 절제된 라인 아이콘) */
 function MetaIcon({ type }: { type: "venue" | "artist" | "price" }) {
@@ -39,7 +40,15 @@ function MetaIcon({ type }: { type: "venue" | "artist" | "price" }) {
 }
 
 /* ─── Event List Row (홈 목록용) ─── */
-export function EventListRow({ event, index }: { event: EventItem; index: number }) {
+export function EventListRow({
+  event,
+  index,
+  showCalendarAdd = false,
+}: {
+  event: EventItem;
+  index: number;
+  showCalendarAdd?: boolean; // 티켓북: 기기 캘린더에 추가 버튼 표시
+}) {
   const router = useRouter();
   const { isSaved, toggleSave } = useTicketbook();
 
@@ -52,7 +61,11 @@ export function EventListRow({ event, index }: { event: EventItem; index: number
 
   return (
     <article
-      className={`group rounded-2xl border ${isFest ? "border-[var(--fest-border)] bg-[var(--fest-bg)]" : "border-[var(--line)] bg-[var(--panel)]"} hover-card animate-fade-in p-4 transition md:p-5`}
+      className={`group rounded-2xl border ${
+        isFest
+          ? "border-[var(--fest-border)] border-l-[3px] border-l-[var(--accent)] bg-[var(--fest-bg)]"
+          : "border-[var(--line)] bg-[var(--panel)]"
+      } hover-card animate-fade-in p-4 transition md:p-5`}
       style={{ animationDelay: `${Math.min(index * 0.04, 0.4)}s` }}
     >
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -62,22 +75,20 @@ export function EventListRow({ event, index }: { event: EventItem; index: number
           className="min-w-0 flex-1 text-left"
         >
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            <span className="label-mono text-[var(--faint)]">Track {String(index + 1).padStart(2, "0")}</span>
-            <span className="text-[var(--faint)]">·</span>
             <p className="text-xs font-medium text-[var(--muted)]">{formatSchedule(event)}</p>
             {daysTag && (
               <span
                 className={`rounded-md px-2 py-0.5 text-[10px] font-bold tracking-wide ${
                   daysTag === "TODAY"
-                    ? "bg-[var(--accent)] text-[#0a0a12] shadow-[0_2px_12px_var(--accent-glow)] animate-pulse-soft"
-                    : "border border-[var(--accent-border)] bg-[var(--accent-soft)] text-[var(--accent)]"
+                    ? "bg-[var(--accent)] text-[#111] animate-pulse-soft"
+                    : "border border-[var(--accent-border)] bg-[var(--accent-soft)] text-[var(--accent-2)]"
                 }`}
               >
                 {daysTag}
               </span>
             )}
             {isFest && (
-              <span className="rounded-md border border-[var(--fest-border)] bg-[var(--fest-bg)] px-2 py-0.5 text-[10px] font-bold text-[var(--fest-text)]">
+              <span className="rounded-md bg-[var(--accent)] px-2 py-0.5 text-[10px] font-bold text-[#111]">
                 FESTIVAL
               </span>
             )}
@@ -88,11 +99,12 @@ export function EventListRow({ event, index }: { event: EventItem; index: number
             )}
           </div>
 
-          <h3 className="text-lg font-bold leading-snug tracking-[-0.02em] text-white transition-colors duration-300 group-hover:text-[var(--accent)] md:text-xl">
+          <h3 className="text-base font-bold leading-snug tracking-[-0.02em] text-white transition-colors duration-300 group-hover:text-[var(--accent-2)] md:text-lg">
             {event.title || "제목 없는 공연"}
           </h3>
 
-          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm">
+          {/* 메타 정보: 항상 세로 스택 (위치 → 아티스트 → 가격) */}
+          <div className="mt-3 flex flex-col gap-1.5 text-sm">
             {event.venueName && (
               <div className="flex items-center gap-1.5">
                 <MetaIcon type="venue" />
@@ -100,9 +112,9 @@ export function EventListRow({ event, index }: { event: EventItem; index: number
               </div>
             )}
             {event.artistNames && (
-              <div className="flex min-w-0 items-center gap-1.5">
+              <div className="flex min-w-0 items-start gap-1.5">
                 <MetaIcon type="artist" />
-                <span className="line-clamp-1 break-words text-[var(--text-secondary)]">{event.artistNames}</span>
+                <span className="line-clamp-2 break-words text-[var(--text-secondary)]">{event.artistNames}</span>
               </div>
             )}
             {priceLines.length > 0 && (
@@ -114,17 +126,31 @@ export function EventListRow({ event, index }: { event: EventItem; index: number
           </div>
         </button>
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={(e) => {
               e.stopPropagation();
               toggleSave(event);
             }}
-            className={`secondary-btn text-xs ${saved ? "border-[var(--accent-border)] bg-[var(--accent-soft)] text-[var(--accent)]" : ""}`}
+            className={`secondary-btn text-xs ${saved ? "border-[var(--accent-border)] bg-[var(--accent-soft)] text-[var(--accent-2)]" : ""}`}
           >
             {saved ? "★ 저장됨" : "☆ 저장"}
           </button>
+
+          {showCalendarAdd && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                downloadEventIcs(event);
+              }}
+              className="secondary-btn text-xs"
+              title="기기 캘린더 앱에 일정 추가 (.ics)"
+            >
+              캘린더 추가
+            </button>
+          )}
 
           <a
             href={instagramUrl}
@@ -154,7 +180,7 @@ export function ScheduleRow({ event, forDate }: { event: EventItem; forDate?: st
   const saved = isSaved(event.id);
 
   return (
-    <div className={`overflow-hidden rounded-2xl border ${isFest ? "border-[var(--fest-border)] bg-[var(--fest-bg)]" : "border-[var(--line)] bg-[var(--panel-2)]"} hover-card p-3 transition`}>
+    <div className={`overflow-hidden rounded-2xl border ${isFest ? "border-[var(--fest-border)] border-l-[3px] border-l-[var(--accent)] bg-[var(--fest-bg)]" : "border-[var(--line)] bg-[var(--panel-2)]"} hover-card p-3 transition`}>
       <button
         type="button"
         onClick={() => router.push(`/events/${event.id}`)}

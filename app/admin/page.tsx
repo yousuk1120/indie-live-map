@@ -241,6 +241,7 @@ function EventsTab() {
   const [timetableImageUrl, setTimetableImageUrl] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDedupRunning, setIsDedupRunning] = useState(false);
+  const [analyzingId, setAnalyzingId] = useState<string | null>(null);
 
   // Optimistic UI 상태: 서버 확정 전 즉시 화면에 반영하고, 실패 시 롤백합니다.
   const [pendingDeleteIds, setPendingDeleteIds] = useState<Set<string>>(new Set());
@@ -367,6 +368,25 @@ function EventsTab() {
         next.delete(id);
         return next;
       });
+    }
+  };
+
+  // AI 라인업 분석: 포스터 이미지(비전) + 캡션으로 날짜별 라인업/종료일 추출 → 문서 업데이트
+  const handleAnalyzeLineup = async (id: string) => {
+    setAnalyzingId(id);
+    try {
+      const res = await fetch("/api/analyze-lineup", {
+        method: "POST",
+        headers: await adminApiHeaders(),
+        body: JSON.stringify({ eventId: id }),
+      });
+      const data = await res.json();
+      alert(data.message || data.error || "분석이 끝났습니다.");
+    } catch (error) {
+      console.error("라인업 분석 실패:", error);
+      alert("라인업 분석 요청에 실패했습니다.");
+    } finally {
+      setAnalyzingId(null);
     }
   };
 
@@ -543,6 +563,14 @@ function EventsTab() {
                 </div>
 
                 <div className="mt-5 flex gap-2 pt-3 border-t border-[var(--line)]">
+                  <button
+                    onClick={() => handleAnalyzeLineup(ev.id)}
+                    disabled={analyzingId === ev.id}
+                    title="포스터 이미지를 AI로 분석해 날짜별 라인업과 종료일을 채웁니다 (페스티벌용)"
+                    className="flex-1 bg-white/5 hover:bg-[var(--accent-soft)] text-[var(--muted)] hover:text-[var(--accent)] py-2.5 rounded-xl text-[11px] font-semibold transition-all duration-200 active:scale-95 disabled:opacity-50"
+                  >
+                    {analyzingId === ev.id ? "분석 중..." : "라인업 분석"}
+                  </button>
                   <button
                     onClick={() => handleEditClick(ev)}
                     className="flex-1 bg-white/5 hover:bg-[var(--accent-soft)] text-[var(--muted)] hover:text-[var(--accent)] py-2.5 rounded-xl text-[11px] font-semibold transition-all duration-200 active:scale-95"
