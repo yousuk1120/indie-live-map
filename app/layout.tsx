@@ -3,6 +3,7 @@ import "./globals.css";
 import { Analytics } from "@vercel/analytics/react";
 import BottomNav from "./components/bottom-nav";
 import SwRegister from "./components/sw-register";
+import InstallPrompt from "./components/install-prompt";
 import { SettingsProvider } from "./contexts/settings-context";
 
 export const metadata: Metadata = {
@@ -45,6 +46,7 @@ export default function RootLayout({
         <SettingsProvider>
           {children}
           <BottomNav />
+          <InstallPrompt />
         </SettingsProvider>
         <SwRegister />
         <Analytics />

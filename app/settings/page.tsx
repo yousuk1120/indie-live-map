@@ -98,6 +98,9 @@ export default function SettingsPage() {
           </div>
         </section>
 
+        {/* ─── 앱 설치 ─── */}
+        <InstallSection />
+
         {/* ─── 푸시 알림 ─── */}
         <PushSection favorites={favorites} />
 
@@ -121,6 +124,50 @@ export default function SettingsPage() {
         />
       </div>
     </PageShell>
+  );
+}
+
+function InstallSection() {
+  const [platform, setPlatform] = useState<"installed" | "ios" | "other">("other");
+
+  useEffect(() => {
+    const standalone =
+      window.matchMedia?.("(display-mode: standalone)").matches ||
+      (window.navigator as unknown as { standalone?: boolean }).standalone === true;
+    if (standalone) {
+      setPlatform("installed");
+      return;
+    }
+    const ua = navigator.userAgent;
+    const isIOS = /iphone|ipad|ipod/i.test(ua);
+    setPlatform(isIOS ? "ios" : "other");
+  }, []);
+
+  return (
+    <section className="rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-5 md:p-6">
+      <h2 className="mb-1 text-sm font-bold text-[var(--text)]">앱으로 설치</h2>
+      <p className="mb-3 text-xs text-[var(--muted)]">
+        홈 화면에 추가하면 앱처럼 전체화면으로 빠르게 열리고, 푸시 알림도 받을 수 있어요.
+      </p>
+
+      {platform === "installed" ? (
+        <p className="rounded-xl border border-[var(--accent-border)] bg-[var(--accent-soft)] px-4 py-3 text-xs font-semibold text-[var(--accent-2)]">
+          ✓ 이미 앱으로 실행 중입니다.
+        </p>
+      ) : platform === "ios" ? (
+        <ol className="space-y-2 rounded-xl border border-[var(--line)] bg-[var(--panel-2)] px-4 py-3 text-xs text-[var(--text-secondary)]">
+          <li>1. Safari 하단의 <strong className="text-[var(--text)]">공유 버튼</strong>(□↑)을 누릅니다.</li>
+          <li>2. 메뉴에서 <strong className="text-[var(--text)]">‘홈 화면에 추가’</strong>를 선택합니다.</li>
+          <li>3. 우상단 <strong className="text-[var(--text)]">‘추가’</strong>를 누르면 완료!</li>
+        </ol>
+      ) : (
+        <p className="rounded-xl border border-[var(--line)] bg-[var(--panel-2)] px-4 py-3 text-xs text-[var(--text-secondary)]">
+          설치 가능 시 하단에 <strong className="text-[var(--text)]">‘앱으로 설치하기’</strong> 배너가 자동으로 떠요.
+          안 보이면 브라우저 주소창의 <strong className="text-[var(--text)]">설치 아이콘</strong> 또는
+          메뉴 → <strong className="text-[var(--text)]">‘앱 설치’</strong>를 눌러주세요.
+        </p>
+      )}
+    </section>
   );
 }
 
