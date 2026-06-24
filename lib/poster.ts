@@ -28,13 +28,11 @@ export async function persistPosterImage(url: string): Promise<string> {
     const data = Buffer.from(await res.arrayBuffer());
     if (data.length === 0 || data.length > 8 * 1024 * 1024) return url;
 
-    const { getAdminStorageBucket, candidateBucketNames } = await import("@/lib/firebase/admin");
-
     const contentType = res.headers.get("content-type") || "image/jpeg";
-    const candidates = candidateBucketNames();
 
-    // 버킷 이름 후보를 순서대로 시도 (신/구 기본 버킷 네이밍 대응)
-    for (const name of candidates) {
+    // 1순위: Firebase Storage (기존 서비스계정 자격증명 — 토큰 불필요).
+    const { getAdminStorageBucket, candidateBucketNames } = await import("@/lib/firebase/admin");
+    for (const name of candidateBucketNames()) {
       const bucket = await getAdminStorageBucket(name);
       if (!bucket) continue;
       try {
@@ -50,9 +48,25 @@ export async function persistPosterImage(url: string): Promise<string> {
         )}?alt=media&token=${downloadToken}`;
       } catch (e) {
         _lastError = String((e as { message?: string })?.message || e).slice(0, 200);
-        // 다음 버킷 이름 후보로 계속
+        // 다음 버킷 이름 후보로
       }
     }
+
+    // 2순위: Vercel Blob (BLOB_READ_WRITE_TOKEN 정적 토큰이 있을 때).
+    if (process.env.BLOB_READ_WRITE_TOKEN) {
+      try {
+        const { put } = await import("@vercel/blob");
+        const stored = await put(`posters/${crypto.randomUUID()}.jpg`, data, {
+          access: "public",
+          contentType,
+          token: process.env.BLOB_READ_WRITE_TOKEN,
+        });
+        return stored.url;
+      } catch (e) {
+        _lastError = String((e as { message?: string })?.message || e).slice(0, 200);
+      }
+    }
+
     return url;
   } catch (error) {
     _lastError = String((error as { message?: string })?.message || error).slice(0, 300);
