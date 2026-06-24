@@ -11,6 +11,7 @@ import {
 } from "@/lib/event-merge";
 import { canonicalVenueName } from "@/lib/venues";
 import { persistPosterImage } from "@/lib/poster";
+import { isKoreanEvent } from "@/lib/events";
 
 // 빌드 타임에 정적 처리 금지 — 항상 런타임에서만 실행
 export const dynamic = "force-dynamic";
@@ -231,6 +232,14 @@ export async function GET(req: Request) {
               artists: d.artists,
             })).filter((d) => d.date),
           };
+
+          // 해외 공연/페스티벌은 저장하지 않음 (국내 인디씬만 수집)
+          if (!isKoreanEvent(incoming as any)) {
+            skippedCount++;
+            console.log(`[CRON][${accountName}] 해외 공연으로 판별 → 수집 생략: "${incoming.title}"`);
+            results.push({ accountName, status: "skip", reason: "overseas" });
+            continue;
+          }
 
           // 같은 공연이 이미 등록되어 있으면 → 병합 업데이트 (페스티벌 라인업 추가/수정 자동 반영)
           const matched = existingEvents.find((ev) => isSameConcert(ev, incoming));

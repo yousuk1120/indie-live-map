@@ -17,7 +17,7 @@ export default function HomeView({
     <>
       <AppHeader
         title="다가오는 공연"
-        subtitle="라이브클럽과 페스티벌 일정을 한곳에서. 오늘 밤 갈 공연을 찾아보세요."
+        subtitle="라이브클럽과 페스티벌 일정을 한곳에서."
       />
       <GalleryView initialEvents={initialEvents} loadError={loadError} />
     </>

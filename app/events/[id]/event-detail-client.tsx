@@ -18,7 +18,7 @@ import { splitArtists } from "@/lib/event-merge";
 import { venueGroupKey } from "@/lib/venues";
 import { useTicketbook } from "@/lib/ticketbook";
 import { useArtistPrefs, eventArtists } from "@/lib/artist-prefs";
-import { downloadEventIcs } from "@/lib/ics";
+import { addEventToCalendar } from "@/lib/ics";
 import { shareEventImage } from "@/lib/share-image";
 
 function extractExternalUrl(value?: string) {
@@ -149,9 +149,9 @@ export default function EventDetailClient({ event }: { event: EventItem }) {
 
             <button
               type="button"
-              onClick={() => downloadEventIcs(event)}
+              onClick={() => addEventToCalendar(event)}
               className="secondary-btn"
-              title="기기 캘린더 앱에 일정 추가 (.ics)"
+              title="구글 캘린더에 일정 추가"
             >
               캘린더 추가
             </button>

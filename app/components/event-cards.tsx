@@ -14,7 +14,7 @@ import {
   getLineupForDate,
 } from "@/lib/events";
 import { useTicketbook } from "@/lib/ticketbook";
-import { downloadEventIcs } from "@/lib/ics";
+import { addEventToCalendar } from "@/lib/ics";
 
 /* 메타 정보용 미니 아이콘 (이모지 대체 — 절제된 라인 아이콘) */
 function MetaIcon({ type }: { type: "venue" | "artist" | "price" }) {
@@ -143,10 +143,10 @@ export function EventListRow({
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                downloadEventIcs(event);
+                addEventToCalendar(event);
               }}
               className="secondary-btn text-xs"
-              title="기기 캘린더 앱에 일정 추가 (.ics)"
+              title="구글 캘린더에 일정 추가"
             >
               캘린더 추가
             </button>
@@ -159,7 +159,7 @@ export function EventListRow({
             className="secondary-btn text-xs"
             onClick={(e) => e.stopPropagation()}
           >
-            IG ↗
+            인스타그램 ↗
           </a>
         </div>
       </div>
@@ -230,7 +230,7 @@ export function ScheduleRow({ event, forDate }: { event: EventItem; forDate?: st
           className="secondary-btn h-8 text-[11px]"
           onClick={(e) => e.stopPropagation()}
         >
-          IG
+          인스타그램
         </a>
       </div>
     </div>

@@ -24,6 +24,58 @@ function nextDay(dateKey: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+// 구글 캘린더 "일정 추가" 페이지 URL — 누르면 캘린더 앱/웹이 열려 한 번에 추가됩니다.
+// (.ics 파일 다운로드 대신 실제 캘린더 연동 경험)
+export function getGoogleCalendarUrl(event: EventItem): string {
+  const start = normalizeDate(event.date);
+  if (!start) return "";
+
+  const end = normalizeDate(event.endDate) || start;
+  const time = parseTime24(toText(event.time));
+  const title = event.title || "공연";
+  const location = event.venueName || "";
+  const details = [
+    event.artistNames ? `출연: ${event.artistNames}` : "",
+    event.price ? `티켓: ${event.price}` : "",
+    event.instagramUrl || event.sourceUrl || "",
+    "라이브클럽맵에서 저장한 공연",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  let dates: string;
+  if (time && start === end) {
+    const [h, m] = time.split(":").map(Number);
+    const endH = Math.min(h + 2, 23);
+    dates = `${dateBasic(start)}T${pad(h)}${pad(m)}00/${dateBasic(start)}T${pad(endH)}${pad(m)}00`;
+  } else {
+    // 종일/멀티데이: 종료일은 exclusive라 다음날
+    dates = `${dateBasic(start)}/${dateBasic(nextDay(end))}`;
+  }
+
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: title,
+    dates,
+    ctz: "Asia/Seoul",
+  });
+  if (location) params.set("location", location);
+  if (details) params.set("details", details);
+
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
+
+// 캘린더에 추가 — 구글 캘린더 일정 추가 페이지를 새 탭으로 엽니다.
+export function addEventToCalendar(event: EventItem): boolean {
+  const url = getGoogleCalendarUrl(event);
+  if (!url) {
+    alert("날짜 정보가 없어 캘린더에 추가할 수 없습니다.");
+    return false;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
+  return true;
+}
+
 export function downloadEventIcs(event: EventItem): boolean {
   const start = normalizeDate(event.date);
   if (!start) {

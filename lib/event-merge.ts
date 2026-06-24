@@ -187,7 +187,14 @@ export function isSameConcert(a: ConcertRecord, b: ConcertRecord): boolean {
     !venueA || !venueB || venueA === venueB ||
     venueA.startsWith(venueB) || venueB.startsWith(venueA);
 
-  if (areSimilarTitles(a.title || "", b.title || "") && venueCompatible) return true;
+  const sameTitle = areSimilarTitles(a.title || "", b.title || "");
+  if (sameTitle && venueCompatible) return true;
+
+  // 페스티벌은 하나의 행사 정체성을 가짐 — 멀티데이(여러 날)거나 동의어 그룹에 걸리는
+  // 같은 이름이면, 장소 표기가 달라도(아티스트 계정 vs 페스티벌 계정 등) 동일 행사로 봅니다.
+  const aMulti = (() => { const r = getDateRange(a); return !!r.start && r.end > r.start; })();
+  const bMulti = (() => { const r = getDateRange(b); return !!r.start && r.end > r.start; })();
+  if (sameTitle && (aMulti || bMulti)) return true;
 
   const overlap = lineupOverlapRatio(a.artistNames, b.artistNames);
   if (venueEqual && overlap >= 0.5) return true;

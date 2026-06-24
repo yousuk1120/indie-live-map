@@ -180,23 +180,28 @@ function PushSection({ favorites }: { favorites: string[] }) {
 
   useEffect(() => {
     setSupported(isPushSupported());
-    setPermission(getPermission());
-    setEnabled(!!getStoredToken());
+    const perm = getPermission();
+    setPermission(perm);
+    // 권한이 허용 상태이고 토큰이 있을 때만 '켜짐'으로 — 상태 불일치(나갔다 오면 바뀜) 방지
+    setEnabled(!!getStoredToken() && perm === "granted");
   }, []);
 
   const handleToggle = async () => {
+    if (busy) return; // 처리 중 중복 클릭 방지 (랙·깜빡임 방지)
     setBusy(true);
-    setMessage("");
     try {
       if (enabled) {
+        setMessage("알림을 끄는 중...");
         await disablePush();
         setEnabled(false);
         setMessage("알림을 껐습니다.");
       } else {
+        setMessage("알림을 설정하는 중... (권한 허용을 눌러주세요)");
         const keys = favorites.map(normalizeArtistKey);
         const result = await enablePush(keys);
-        setEnabled(!!getStoredToken());
-        setPermission(getPermission());
+        const nowPerm = getPermission();
+        setPermission(nowPerm);
+        setEnabled(!!getStoredToken() && nowPerm === "granted");
         setMessage(result.message);
       }
     } finally {
@@ -213,17 +218,22 @@ function PushSection({ favorites }: { favorites: string[] }) {
             type="button"
             role="switch"
             aria-checked={enabled}
+            aria-busy={busy}
             disabled={busy || permission === "denied"}
             onClick={handleToggle}
-            className={`relative h-6 w-11 shrink-0 rounded-full p-0.5 transition-colors duration-300 disabled:opacity-50 ${
+            className={`relative h-6 w-11 shrink-0 rounded-full p-0.5 transition-colors duration-300 disabled:cursor-wait ${
               enabled ? "bg-[var(--accent)]" : "bg-[var(--panel-3)]"
             }`}
           >
             <span
-              className={`block h-5 w-5 rounded-full bg-white shadow transition-transform duration-300 ${
+              className={`flex h-5 w-5 items-center justify-center rounded-full bg-white shadow transition-transform duration-300 ${
                 enabled ? "translate-x-5" : "translate-x-0"
               }`}
-            />
+            >
+              {busy && (
+                <span className="h-3 w-3 animate-spin rounded-full border-2 border-[var(--panel-3)] border-t-[var(--accent)]" />
+              )}
+            </span>
           </button>
         ) : null}
       </div>
