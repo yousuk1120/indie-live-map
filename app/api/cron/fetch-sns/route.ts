@@ -57,6 +57,12 @@ export async function GET(req: Request) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
   }
 
+  // 어드민 전용 배포(ADMIN_ENABLED=true)에서는 수집 크론을 실행하지 않습니다.
+  // (본 사이트 배포에서만 크론이 돌도록 — 별도 어드민 프로젝트와 수집 중복 방지)
+  if (process.env.ADMIN_ENABLED === "true") {
+    return NextResponse.json({ success: true, message: "어드민 배포에서는 수집 크론을 실행하지 않습니다." });
+  }
+
   // 환경변수 사전 검증
   if (!process.env.APIFY_API_TOKEN) {
     console.error("[CRON] APIFY_API_TOKEN 환경변수 누락");
