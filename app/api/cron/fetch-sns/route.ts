@@ -18,6 +18,31 @@ export const dynamic = "force-dynamic";
 // 계정 수가 늘어도 타임아웃 나지 않도록 (Fluid Compute)
 export const maxDuration = 300;
 
+// 빈 포스터(또는 인스타 만료 URL)인 기존 공연을 스크랩+Blob영구화로 복구합니다. 채운 개수 반환.
+async function runPosterBackfill(db: any, FieldValue: any, limit: number): Promise<number> {
+  const snap = await db.collection("events").get();
+  const targets = snap.docs
+    .map((d: any) => ({ id: d.id, ...d.data() }))
+    .filter((ev: any) => {
+      const p = String(ev.posterUrl || "");
+      const needs = !p.trim() || /cdninstagram|fbcdn|instagram/.test(p); // 없음 또는 만료위험 인스타 URL
+      return needs && String(ev.instagramUrl || "").trim();
+    })
+    .slice(0, limit);
+
+  let filled = 0;
+  for (const ev of targets) {
+    const scraped = await scrapePosterUrl(ev.instagramUrl);
+    const persisted = await persistPosterImage(scraped);
+    // Blob 영구 URL로 바뀐 경우에만 갱신 (인스타→인스타면 의미 없으니 스킵)
+    if (persisted && persisted.includes(".blob.vercel-storage.com")) {
+      await db.collection("events").doc(ev.id).update({ posterUrl: persisted, updatedAt: FieldValue.serverTimestamp() });
+      filled++;
+    }
+  }
+  return filled;
+}
+
 // 인스타 단일 게시물에서 포스터 이미지 URL 추출 (Apify instagram-scraper)
 async function scrapePosterUrl(instagramUrl: string): Promise<string> {
   if (!instagramUrl || !process.env.APIFY_API_TOKEN) return "";
@@ -83,6 +108,14 @@ export async function GET(req: Request) {
     if (!db || !db.collection) {
       console.error("[CRON] Firebase Admin DB 초기화 실패 - 환경변수(FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY) 확인 필요");
       return NextResponse.json({ success: false, error: "Firebase Admin init failed" }, { status: 500 });
+    }
+
+    // 백필 전용 모드: 전체 계정 스크랩 없이 빈/만료 포스터만 Blob로 영구 복구합니다.
+    //   GET /api/cron/fetch-sns?secret=...&backfillOnly=1&limit=60
+    if (searchParams.get("backfillOnly") === "1") {
+      const limit = Math.min(Number(searchParams.get("limit")) || 30, 80);
+      const filled = await runPosterBackfill(db, FieldValue, limit);
+      return NextResponse.json({ success: true, mode: "backfillOnly", backfilled: filled, limit });
     }
 
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -325,27 +358,10 @@ export async function GET(req: Request) {
       }
     }
 
-    // [백필] 포스터가 비어 있는 기존 공연을 자동으로 채웁니다 (실행당 최대 12건, 영구화).
-    //  인스타 서명 URL 만료 등으로 포스터가 사라진 공연을 점진적으로 복구합니다.
+    // [백필] 빈/만료(인스타 URL) 포스터를 Blob로 영구 복구 (실행당 최대 18건).
     let backfilledPosters = 0;
     try {
-      const missingSnap = await db.collection("events").get();
-      const targets = missingSnap.docs
-        .map((d: any) => ({ id: d.id, ...d.data() }))
-        .filter((ev: any) => !String(ev.posterUrl || "").trim() && String(ev.instagramUrl || "").trim())
-        .slice(0, 12);
-
-      for (const ev of targets) {
-        const scraped = await scrapePosterUrl(ev.instagramUrl);
-        const persisted = await persistPosterImage(scraped);
-        if (persisted) {
-          await db.collection("events").doc(ev.id).update({
-            posterUrl: persisted,
-            updatedAt: FieldValue.serverTimestamp(),
-          });
-          backfilledPosters++;
-        }
-      }
+      backfilledPosters = await runPosterBackfill(db, FieldValue, 18);
       if (backfilledPosters > 0) console.log(`[CRON] 포스터 백필 ${backfilledPosters}건 완료`);
     } catch (backfillError) {
       console.warn("[CRON] 포스터 백필 실패 (무시하고 계속):", backfillError);
