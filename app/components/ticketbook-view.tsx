@@ -59,7 +59,7 @@ export default function TicketbookView() {
             <div className="flex items-center gap-2">
               <span className="live-dot" />
               <p className="text-xs text-[var(--text-secondary)]">
-                <span className="font-semibold text-white">Google 계정으로 동기화 중</span>
+                <span className="font-semibold text-[var(--text)]">Google 계정으로 동기화 중</span>
                 {userEmail && <span className="ml-1.5 text-[var(--muted)]">{userEmail}</span>}
               </p>
             </div>
@@ -67,7 +67,7 @@ export default function TicketbookView() {
         ) : (
           <div className="flex flex-col gap-3 rounded-2xl border border-[var(--accent-border)] bg-[var(--accent-soft)] px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-xs leading-relaxed text-[var(--text-secondary)]">
-              <span className="font-semibold text-white">기기를 바꿔도 티켓북을 잃지 마세요.</span>
+              <span className="font-semibold text-[var(--text)]">기기를 바꿔도 티켓북을 잃지 마세요.</span>
               <br className="sm:hidden" />
               <span className="text-[var(--muted)]"> Google 계정을 연결하면 폰과 PC가 자동 동기화됩니다.</span>
             </p>
@@ -100,7 +100,7 @@ export default function TicketbookView() {
           type="button"
           onClick={() => setTab("upcoming")}
           className={`flex h-10 flex-1 items-center justify-center rounded-xl text-sm font-semibold transition-all duration-300 active:scale-95 ${
-            tab === "upcoming" ? "bg-[var(--accent)] text-[#0a0a12] shadow-[0_2px_16px_var(--accent-glow)]" : "text-[var(--muted)] hover:text-white"
+            tab === "upcoming" ? "bg-[var(--accent)] text-[#0a0a12] shadow-[0_2px_16px_var(--accent-glow)]" : "text-[var(--muted)] hover:text-[var(--text)]"
           }`}
         >
           저장한 공연 {saved.length > 0 && <span className="ml-1.5 tabular-nums">{saved.length}</span>}
@@ -109,7 +109,7 @@ export default function TicketbookView() {
           type="button"
           onClick={() => setTab("history")}
           className={`flex h-10 flex-1 items-center justify-center rounded-xl text-sm font-semibold transition-all duration-300 active:scale-95 ${
-            tab === "history" ? "bg-[var(--accent)] text-[#0a0a12] shadow-[0_2px_16px_var(--accent-glow)]" : "text-[var(--muted)] hover:text-white"
+            tab === "history" ? "bg-[var(--accent)] text-[#0a0a12] shadow-[0_2px_16px_var(--accent-glow)]" : "text-[var(--muted)] hover:text-[var(--text)]"
           }`}
         >
           관람 기록 {records.length > 0 && <span className="ml-1.5 tabular-nums">{records.length}</span>}
@@ -168,7 +168,7 @@ function StatCard({ label, value, sub }: { label: string; value: string; sub?: s
   return (
     <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel)] px-3 py-4 text-center">
       <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">{label}</p>
-      <p className="mt-1 truncate text-sm font-extrabold text-white md:text-base">{value}</p>
+      <p className="mt-1 truncate text-sm font-extrabold text-[var(--text)] md:text-base">{value}</p>
       {sub && <p className="mt-0.5 text-[10px] text-[var(--accent)]">{sub}</p>}
     </div>
   );
@@ -178,7 +178,7 @@ function EmptyState({ title, description }: { title: string; description: string
   const router = useRouter();
   return (
     <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-10 text-center">
-      <p className="text-sm font-semibold text-white">{title}</p>
+      <p className="text-sm font-semibold text-[var(--text)]">{title}</p>
       <p className="mx-auto mt-2 max-w-xs text-xs leading-relaxed text-[var(--muted)]">{description}</p>
       <button type="button" onClick={() => router.push("/")} className="primary-btn mt-6 text-xs">
         공연 둘러보기
@@ -206,7 +206,7 @@ function RecordCard({ record }: { record: TicketRecord }) {
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-xs font-medium text-[var(--muted)]">{formatSchedule(record)}</p>
-            <h3 className="mt-1 text-base font-bold leading-snug text-white">{record.title || "제목 없는 공연"}</h3>
+            <h3 className="mt-1 text-base font-bold leading-snug text-[var(--text)]">{record.title || "제목 없는 공연"}</h3>
             {record.venueName && (
               <p className="mt-1.5 text-xs text-[var(--text-secondary)]">{record.venueName}</p>
             )}
@@ -233,7 +233,7 @@ function RecordCard({ record }: { record: TicketRecord }) {
                   type="button"
                   onClick={() => updateRecord(record.id, { rating: record.rating === star ? 0 : star })}
                   className={`text-2xl transition-all duration-150 active:scale-75 ${
-                    (record.rating || 0) >= star ? "text-[var(--fest-text)]" : "text-white/15 hover:text-white/40"
+                    (record.rating || 0) >= star ? "text-[var(--fest-text)]" : "text-[var(--line-strong)] hover:text-[var(--muted)]"
                   }`}
                   aria-label={`별점 ${star}점`}
                 >
@@ -251,7 +251,7 @@ function RecordCard({ record }: { record: TicketRecord }) {
               onChange={(e) => setReview(e.target.value)}
               onBlur={() => updateRecord(record.id, { review })}
               placeholder="이 공연, 어땠나요?"
-              className="w-full rounded-xl border border-[var(--line)] bg-white/5 px-4 py-3 text-xs text-white outline-none transition-colors placeholder:text-white/20 focus:border-[var(--accent-border)]"
+              className="w-full rounded-xl border border-[var(--line)] bg-[var(--panel-2)] px-4 py-3 text-xs text-[var(--text)] outline-none transition-colors placeholder:text-[var(--faint)] focus:border-[var(--accent-border)]"
             />
           </div>
 
@@ -263,7 +263,7 @@ function RecordCard({ record }: { record: TicketRecord }) {
               onChange={(e) => setSetlist(e.target.value)}
               onBlur={() => updateRecord(record.id, { setlist })}
               placeholder={"1. 오프닝 곡\n2. ..."}
-              className="custom-scrollbar h-28 w-full resize-none rounded-xl border border-[var(--line)] bg-white/5 px-4 py-3 text-xs leading-relaxed text-white outline-none transition-colors placeholder:text-white/20 focus:border-[var(--accent-border)]"
+              className="custom-scrollbar h-28 w-full resize-none rounded-xl border border-[var(--line)] bg-[var(--panel-2)] px-4 py-3 text-xs leading-relaxed text-[var(--text)] outline-none transition-colors placeholder:text-[var(--faint)] focus:border-[var(--accent-border)]"
             />
           </div>
 
@@ -271,7 +271,7 @@ function RecordCard({ record }: { record: TicketRecord }) {
             <button
               type="button"
               onClick={handleDelete}
-              className="rounded-lg px-3 py-1.5 text-[11px] font-semibold text-white/30 transition-colors hover:bg-red-500/10 hover:text-red-400"
+              className="rounded-lg px-3 py-1.5 text-[11px] font-semibold text-[var(--faint)] transition-colors hover:bg-red-500/10 hover:text-red-400"
             >
               기록 삭제
             </button>
@@ -287,7 +287,7 @@ function StarDisplay({ rating }: { rating: number }) {
   return (
     <span className="text-xs text-[var(--fest-text)]">
       {"★".repeat(rating)}
-      <span className="text-white/15">{"★".repeat(5 - rating)}</span>
+      <span className="text-[var(--line-strong)]">{"★".repeat(5 - rating)}</span>
     </span>
   );
 }

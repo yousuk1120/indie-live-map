@@ -3,6 +3,7 @@
 
 let adminDbInstance: any = null;
 let adminAuthInstance: any = null;
+let adminMessagingInstance: any = null;
 
 async function ensureAdminApp(): Promise<boolean> {
   const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
@@ -59,6 +60,20 @@ export async function getAdminAuth() {
     return adminAuthInstance;
   } catch (error) {
     console.error("Firebase Admin Auth 초기화 실패:", error);
+    return null;
+  }
+}
+
+export async function getAdminMessaging() {
+  if (adminMessagingInstance) return adminMessagingInstance;
+  if (!(await ensureAdminApp())) return null;
+
+  try {
+    const { getMessaging } = await import("firebase-admin/messaging");
+    adminMessagingInstance = getMessaging();
+    return adminMessagingInstance;
+  } catch (error) {
+    console.error("Firebase Admin Messaging 초기화 실패:", error);
     return null;
   }
 }

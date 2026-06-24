@@ -88,7 +88,7 @@ export default function CalendarView({
             >
               ‹
             </button>
-            <h2 className="min-w-[140px] text-center text-lg font-bold tabular-nums tracking-tight text-white">
+            <h2 className="min-w-[140px] text-center text-lg font-bold tabular-nums tracking-tight text-[var(--text)]">
               {currentMonth.getFullYear()}년 {currentMonth.getMonth() + 1}월
             </h2>
             <button
@@ -102,13 +102,13 @@ export default function CalendarView({
           </div>
           <div className="flex gap-3 text-[11px] font-semibold">
             <span className="flex items-center gap-1.5 text-[var(--accent-2)]"><span className="h-2 w-2 rounded-full bg-[var(--accent-2)]" />페스티벌</span>
-            <span className="flex items-center gap-1.5 text-white/80"><span className="h-2 w-2 rounded-full bg-white/80" />일반 공연</span>
+            <span className="flex items-center gap-1.5 text-[var(--text-secondary)]"><span className="h-2 w-2 rounded-full bg-[var(--muted)]" />일반 공연</span>
           </div>
         </div>
 
         <div className="mb-1 grid grid-cols-7 gap-1">
           {["일", "월", "화", "수", "목", "금", "토"].map((day, i) => (
-            <div key={`${day}-${i}`} className={`py-2 text-center text-xs font-semibold ${i === 0 ? "text-red-400/70" : i === 6 ? "text-sky-400/70" : "text-[var(--muted)]"}`}>{day}</div>
+            <div key={`${day}-${i}`} className={`py-2 text-center text-xs font-semibold ${i === 0 ? "text-red-500/80" : i === 6 ? "text-sky-600/80" : "text-[var(--muted)]"}`}>{day}</div>
           ))}
         </div>
 
@@ -124,14 +124,14 @@ export default function CalendarView({
                   cell.key === selectedDate
                     ? "bg-[var(--accent)] shadow-[0_4px_24px_var(--accent-glow)]"
                     : cell.events.length > 0
-                    ? "border border-[var(--line-strong)] bg-[#1f1f1f] hover:border-[var(--accent-border)] hover:bg-[var(--panel-3)]"
+                    ? "border border-[var(--accent-border)] bg-[var(--accent-soft)] hover:border-[var(--accent)] hover:bg-[var(--panel-2)]"
                     : "opacity-60 hover:opacity-100 hover:bg-[var(--panel-2)]"
                 }`}
               >
                 <span className={`text-sm font-semibold ${
-                  cell.key === selectedDate ? "text-[#0a0a12]" :
-                  dayOfWeek === 0 ? "text-red-400/80" :
-                  dayOfWeek === 6 ? "text-sky-400/80" : "text-white"
+                  cell.key === selectedDate ? "text-white" :
+                  dayOfWeek === 0 ? "text-red-500" :
+                  dayOfWeek === 6 ? "text-sky-600" : "text-[var(--text)]"
                 }`}>{cell.day}</span>
                 {cell.events.length > 0 && (
                   <div className="mt-1 flex justify-center gap-[3px]">
@@ -143,7 +143,7 @@ export default function CalendarView({
                             ? "bg-[#111]/60"
                             : isFestivalEvent(cell.events[i])
                             ? "bg-[var(--accent-2)]"
-                            : "bg-white/90"
+                            : "bg-[var(--muted)]"
                         }`}
                         style={{ width: 6, height: 6 }}
                       />
@@ -160,7 +160,7 @@ export default function CalendarView({
 
       <aside className="rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-4 md:p-5">
         <div className="mb-4 border-b border-[var(--line)] pb-3">
-          <h2 className="text-sm font-semibold text-white">선택한 날짜</h2>
+          <h2 className="text-sm font-semibold text-[var(--text)]">선택한 날짜</h2>
           <p className="mt-1 text-xs text-[var(--muted)]">{selectedDate || "이 달에 일정이 없습니다."}</p>
         </div>
 

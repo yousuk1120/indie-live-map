@@ -294,6 +294,13 @@ export function updateRecord(
   if (updated) cloudWrite("records", updated);
 }
 
+// 클라우드 동기화(익명 인증)를 부트스트랩합니다. 이 모듈이 인증 소유자이며,
+// 다른 스토어(artist-prefs 등)는 이 함수만 호출하고 직접 익명 로그인하지 않습니다.
+// (signInAnonymously 중복 호출로 인한 익명 계정 분기 방지)
+export function ensureCloudAuth() {
+  load();
+}
+
 // 구버전 ID 목록을 현재 이벤트 데이터와 매칭해 스냅샷으로 복원
 export function syncLegacyIds(events: EventItem[]) {
   load();

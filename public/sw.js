@@ -1,7 +1,7 @@
 // Seoul Indie Live 서비스 워커
 // 페이지: 네트워크 우선(실패 시 캐시) / 정적 자원: 캐시 우선
 
-const CACHE_NAME = "live-club-map-v3";
+const CACHE_NAME = "live-club-map-v4";
 
 self.addEventListener("install", () => {
   self.skipWaiting();

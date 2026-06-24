@@ -10,6 +10,18 @@ export default function SwRegister() {
   useEffect(() => {
     if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
 
+    // 개발 모드: 서비스 워커를 등록하지 않고, 기존에 남아있는 SW/캐시를 비운다.
+    // (옛 빌드 청크가 캐시 우선으로 서빙되어 "바뀐 게 없어" 보이는 문제 방지)
+    if (process.env.NODE_ENV !== "production") {
+      navigator.serviceWorker.getRegistrations().then((regs) => {
+        regs.forEach((r) => r.unregister());
+      });
+      if ("caches" in window) {
+        caches.keys().then((keys) => keys.forEach((k) => caches.delete(k)));
+      }
+      return;
+    }
+
     let reloaded = false;
 
     // 새 SW가 제어권을 가져오면 1회 새로고침 (무한 루프 방지 가드)

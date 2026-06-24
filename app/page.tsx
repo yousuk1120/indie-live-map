@@ -1,11 +1,10 @@
 import type { Metadata } from "next";
 import { fetchEvents } from "@/lib/fetch-events";
 import PageShell from "./components/page-shell";
-import AppHeader from "./components/app-header";
-import ListView from "./components/list-view";
+import HomeView from "./components/home-view";
 
-// ISR: 5분마다 서버에서 공연 데이터를 다시 가져와 정적 페이지를 재생성합니다.
-export const revalidate = 300;
+// 임시 캐시 무효화: 즉시 최신 데이터를 불러옵니다.
+export const revalidate = 0;
 
 export const metadata: Metadata = {
   title: "라이브클럽맵 | 인디 공연 일정",
@@ -17,11 +16,7 @@ export default async function HomePage() {
 
   return (
     <PageShell>
-      <AppHeader
-        title="다가오는 공연"
-        subtitle="라이브클럽과 페스티벌 일정을 한곳에서. 오늘 밤 갈 공연을 찾아보세요."
-      />
-      <ListView initialEvents={events} loadError={loadError} />
+      <HomeView initialEvents={events} loadError={loadError} />
     </PageShell>
   );
 }

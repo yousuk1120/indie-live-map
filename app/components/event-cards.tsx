@@ -93,13 +93,13 @@ export function EventListRow({
               </span>
             )}
             {totalDays > 1 && (
-              <span className="rounded-md bg-white/10 px-2 py-0.5 text-[10px] font-bold text-white/70">
+              <span className="rounded-md bg-black/5 px-2 py-0.5 text-[10px] font-bold text-[var(--muted)]">
                 {totalDays}일간
               </span>
             )}
           </div>
 
-          <h3 className="text-base font-bold leading-snug tracking-[-0.02em] text-white transition-colors duration-300 group-hover:text-[var(--accent-2)] md:text-lg">
+          <h3 className="text-base font-bold leading-snug tracking-[-0.02em] text-[var(--text)] transition-colors duration-300 group-hover:text-[var(--accent-2)] md:text-lg">
             {event.title || "제목 없는 공연"}
           </h3>
 
@@ -120,7 +120,7 @@ export function EventListRow({
             {priceLines.length > 0 && (
               <div className="flex items-center gap-1.5">
                 <MetaIcon type="price" />
-                <span className="font-semibold text-white">{priceLines[0]}</span>
+                <span className="font-semibold text-[var(--text)]">{priceLines[0]}</span>
               </div>
             )}
           </div>
@@ -187,7 +187,7 @@ export function ScheduleRow({ event, forDate }: { event: EventItem; forDate?: st
         className="block w-full min-w-0 text-left"
       >
         <p className="text-[11px] font-medium text-[var(--muted)]">{formatSchedule(event)}</p>
-        <p className="mt-1 text-sm font-semibold leading-snug text-white">{event.title || "제목 없는 공연"}</p>
+        <p className="mt-1 text-sm font-semibold leading-snug text-[var(--text)]">{event.title || "제목 없는 공연"}</p>
 
         <div className="mt-2 space-y-1.5">
           {event.venueName && (
@@ -203,7 +203,7 @@ export function ScheduleRow({ event, forDate }: { event: EventItem; forDate?: st
             </p>
           )}
           {priceLines.length > 0 && (
-            <p className="flex items-center gap-1.5 text-xs font-semibold text-white">
+            <p className="flex items-center gap-1.5 text-xs font-semibold text-[var(--text)]">
               <MetaIcon type="price" />
               {priceLines.join(" / ")}
             </p>

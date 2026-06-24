@@ -298,7 +298,7 @@ export default function MapView({
       <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px] animate-fade-pure">
         <div className="order-1 overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--panel)]">
           <div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-3">
-            <h2 className="text-sm font-semibold text-white">Map</h2>
+            <h2 className="text-sm font-semibold text-[var(--text)]">Map</h2>
             {mapError ? <p className="text-xs text-[var(--muted)]">{mapError}</p> : null}
           </div>
           <div ref={mapContainerRef} className="h-[380px] w-full lg:h-[520px]" />
@@ -306,7 +306,7 @@ export default function MapView({
 
         <aside className="order-2 flex h-[380px] flex-col lg:h-[520px]">
           <div className="mb-3 flex flex-shrink-0 items-center justify-between px-1">
-            <h2 className="mr-2 truncate text-sm font-semibold text-white">
+            <h2 className="mr-2 truncate text-sm font-semibold text-[var(--text)]">
               {activeVenue ? activeVenue : "공연장 정보"}
             </h2>
             <div className="flex shrink-0 items-center gap-3 text-[10px] font-bold">
@@ -314,8 +314,8 @@ export default function MapView({
                 <span className="inline-block h-2.5 w-2.5 rounded-full border border-[#3d3d3d] bg-[#E87C51]" />
                 페스티벌
               </span>
-              <span className="flex items-center gap-1 text-white/80">
-                <span className="inline-block h-2.5 w-2.5 rounded-full border border-[#3d3d3d] bg-white" />
+              <span className="flex items-center gap-1 text-[var(--text-secondary)]">
+                <span className="inline-block h-2.5 w-2.5 rounded-full border border-[#3d3d3d] bg-[var(--muted)]" />
                 일반
               </span>
             </div>

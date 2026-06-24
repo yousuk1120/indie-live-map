@@ -14,39 +14,39 @@
    순수한 블랙 비닐 + 번트 오렌지 라벨 (yousuk-portfolio 디자인 시스템 기반)
    ───────────────────────────────────────────── */
 :root {
-  /* Backgrounds: 비닐 블랙 */
-  --bg: #111111;
-  --bg-elevated: #161616;
-  --panel: #161616;
-  --panel-2: #1a1a1a;
-  --panel-3: #222222;
-  --card-dark: #0f0f0f;
+  /* Backgrounds: 웜 화이트 (밝고 깔끔 — 포스터 색이 살도록) */
+  --bg: #faf9f7;
+  --bg-elevated: #ffffff;
+  --panel: #ffffff;
+  --panel-2: #f4f3f0;
+  --panel-3: #ebe9e4;
+  --card-dark: #ffffff;
 
   /* Borders */
-  --line: #2a2a2a;
-  --line-strong: #3d3d3d;
+  --line: #e7e4df;
+  --line-strong: #d6d2ca;
 
-  /* Text: 잉크 위계 */
-  --text: #ffffff;
-  --text-secondary: #e0e0e0;
-  --muted: #a3a3a3;
-  --faint: #777777;
+  /* Text: 잉크 위계 (웜 그레이) */
+  --text: #1c1917;
+  --text-secondary: #44403c;
+  --muted: #79716b;
+  --faint: #a8a29e;
 
   /* Accent: 번트 오렌지 (레코드 라벨) */
   --accent: #d95a2b;
-  --accent-2: #e87c51;
-  --accent-deep: #b8431a;
-  --accent-soft: rgba(217, 90, 43, 0.1);
-  --accent-border: rgba(217, 90, 43, 0.4);
-  --accent-glow: rgba(217, 90, 43, 0.18);
+  --accent-2: #c14e22;
+  --accent-deep: #ad4319;
+  --accent-soft: rgba(217, 90, 43, 0.09);
+  --accent-border: rgba(217, 90, 43, 0.35);
+  --accent-glow: rgba(217, 90, 43, 0.16);
 
-  --danger: #f87171;
-  --success: #34d399;
+  --danger: #dc2626;
+  --success: #16a34a;
 
   /* Festival: 액센트 오렌지가 곧 하이라이트 */
-  --fest-text: #e87c51;
-  --fest-bg: rgba(217, 90, 43, 0.07);
-  --fest-border: rgba(217, 90, 43, 0.32);
+  --fest-text: #b8431a;
+  --fest-bg: rgba(217, 90, 43, 0.06);
+  --fest-border: rgba(217, 90, 43, 0.30);
 
   /* 모노 라벨 (TRACK 번호, 와이드 트래킹 캡션) */
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
@@ -65,6 +65,17 @@
 html {
   scroll-behavior: smooth;
   -webkit-tap-highlight-color: transparent;
+  /* 사용자 글자 크기 설정 — rem 기반 본문 텍스트가 비례 확대/축소됩니다.
+     기본(보통) 16px. data-font-size 속성으로 전역 조절. */
+  font-size: 16px;
+}
+
+html[data-font-size="small"] {
+  font-size: 14.5px;
+}
+
+html[data-font-size="large"] {
+  font-size: 18px;
 }
 
 body {
@@ -221,7 +232,7 @@ img {
 
 .secondary-btn:hover {
   border-color: var(--accent-border);
-  color: #fff;
+  color: var(--accent-2);
   background: var(--panel-3);
   transform: translateY(-1px);
 }
@@ -248,7 +259,7 @@ img {
 
 .icon-btn:hover {
   border-color: var(--accent-border);
-  color: #fff;
+  color: var(--accent);
   background: var(--accent-soft);
   box-shadow: 0 0 16px var(--accent-glow);
 }
@@ -296,6 +307,46 @@ img {
   animation: slideUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
+/* 카드 등장 — 페이드 + 살짝 떠오르며 확대 (갤러리 스태거용) */
+@keyframes rise {
+  from { opacity: 0; transform: translateY(16px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.animate-rise {
+  opacity: 0;
+  animation: rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* 필터 칩 */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.chip:hover {
+  border-color: var(--accent-border);
+  color: var(--text);
+}
+
+.chip[data-active="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  box-shadow: 0 4px 16px var(--accent-glow);
+}
+
 .animate-pulse-soft {
   animation: pulseSoft 2.2s ease-in-out infinite;
 }
@@ -322,7 +373,7 @@ img {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.04), transparent);
+  background: linear-gradient(90deg, transparent, rgba(0, 0, 0, 0.05), transparent);
   background-size: 400px 100%;
   animation: shimmer 1.6s ease-in-out infinite;
 }
@@ -347,9 +398,9 @@ img {
 }
 
 .hover-card:hover {
-  border-color: rgba(255, 255, 255, 0.18);
+  border-color: var(--line-strong);
   transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
 }
 
 /* ─── Live dot ─── */

@@ -85,6 +85,17 @@ service cloud.firestore {
       allow read, write: if isAuthenticated() && request.auth.uid == uid;
     }
 
+    // ─────────────────────────────────────────
+    // 4. 웹 푸시 구독 (FCM 토큰 + 관심 아티스트 키)
+    //    - 본인 소유 문서만 생성/수정/삭제 (token 문서, uid 일치)
+    //    - 읽기는 클라이언트에 불필요 → 차단 (서버는 Admin SDK로 우회)
+    // ─────────────────────────────────────────
+    match /pushSubscriptions/{token} {
+      allow read: if false;
+      allow create, update: if isAuthenticated() && request.resource.data.uid == request.auth.uid;
+      allow delete: if isAuthenticated() && resource.data.uid == request.auth.uid;
+    }
+
     // 그 외 모든 컬렉션은 기본 차단
     match /{document=**} {
       allow read, write: if false;

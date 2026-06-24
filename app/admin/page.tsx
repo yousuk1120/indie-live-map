@@ -17,6 +17,7 @@ import {
   extractDateRange,
 } from "@/lib/event-merge";
 import { canonicalVenueName } from "@/lib/venues";
+import { isAdminEmail, ADMIN_EMAILS } from "@/lib/admin-config";
 
 type EventItem = {
   id: string;
@@ -93,6 +94,49 @@ async function adminApiHeaders(): Promise<Record<string, string>> {
   };
 }
 
+// 새 공연 발행 시 관심 아티스트 구독자에게 푸시 발송 (fire-and-forget)
+// artistNames + 날짜별 라인업 아티스트를 합쳐 매칭 정확도를 높입니다.
+async function notifyNewEvent(record: ConcertRecord, eventId?: string) {
+  try {
+    const lineupArtists = (record.dayLineups || []).map((d) => d.artists).filter(Boolean).join(", ");
+    const artists = [record.artistNames, lineupArtists].filter(Boolean).join(", ");
+    if (!artists.trim()) return;
+
+    await fetch("/api/notify-new-event", {
+      method: "POST",
+      headers: await adminApiHeaders(),
+      body: JSON.stringify({ title: record.title, artists, eventId }),
+    });
+  } catch (error) {
+    console.warn("새 공연 푸시 발송 실패:", error);
+  }
+}
+
+// Firestore 규칙(isValidEvent)의 길이 제한에 맞춰 문자열을 자릅니다.
+// 한 후보의 과도하게 긴 필드 때문에 자동 승인 전체가 막히는 것을 방지합니다.
+function clampStr(value: unknown, max: number): string {
+  const s = adminToText(value);
+  return s.length > max ? s.slice(0, max) : s;
+}
+
+// events 컬렉션에 넣을 수 있는 안전한 페이로드로 정규화 (규칙 통과 보장)
+function toSafeEventPayload(record: ConcertRecord): Record<string, unknown> {
+  return {
+    title: clampStr(record.title, 300),
+    date: clampStr(record.date, 60),
+    endDate: clampStr(record.endDate, 60),
+    time: clampStr(record.time, 60),
+    venueName: clampStr(record.venueName, 200),
+    artistNames: clampStr(record.artistNames, 2000),
+    sourceUrl: clampStr(record.sourceUrl, 1000),
+    instagramUrl: clampStr(record.instagramUrl, 1000),
+    price: clampStr(record.price, 500),
+    posterUrl: clampStr(record.posterUrl, 2000),
+    ticketOpenAt: clampStr(record.ticketOpenAt, 60),
+    dayLineups: (record.dayLineups || []).slice(0, 30),
+  };
+}
+
 function isExpiredAdminEvent(item: EventItem) {
   const date = adminNormalizeDate(item.date);
   if (!date) return false;
@@ -133,12 +177,25 @@ type CandidateEvent = {
 export default function AdminPage() {
   const router = useRouter();
   const [loadingAuth, setLoadingAuth] = useState(true);
+  const [deniedEmail, setDeniedEmail] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"events" | "sources" | "candidates">("events");
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (!user) router.push("/login");
-      else setLoadingAuth(false);
+      // 미로그인 → 로그인 페이지로
+      if (!user) {
+        router.push("/login");
+        return;
+      }
+      // 로그인했지만 관리자 화이트리스트에 없으면 → 접근 차단 화면
+      if (!isAdminEmail(user.email)) {
+        setDeniedEmail(user.email || "(이메일 정보 없음)");
+        setLoadingAuth(false);
+        return;
+      }
+      // 정상 관리자
+      setDeniedEmail(null);
+      setLoadingAuth(false);
     });
     return () => unsubscribe();
   }, [router]);
@@ -148,19 +205,30 @@ export default function AdminPage() {
     router.push("/login");
   };
 
+  // 다른 계정으로 다시 로그인: 현재 세션을 끊고 로그인 페이지로 이동
+  const handleSwitchAccount = async () => {
+    await signOut(auth);
+    router.push("/login");
+  };
+
   // onAuthStateChanged 판정 전에는 관리자 UI를 절대 렌더하지 않습니다 (깜빡임 방지).
   if (loadingAuth) {
     return (
-      <div className="min-h-screen bg-[var(--bg)] text-white flex items-center justify-center">
+      <div className="min-h-screen bg-[var(--bg)] text-[var(--text)] flex items-center justify-center">
         <div className="flex flex-col items-center gap-5 animate-fade-in">
           <div className="auth-spinner" />
           <div className="text-center">
-            <p className="text-sm font-semibold text-white">관리자 인증 확인 중</p>
+            <p className="text-sm font-semibold text-[var(--text)]">관리자 인증 확인 중</p>
             <p className="mt-1 text-xs text-[var(--muted)]">잠시만 기다려주세요...</p>
           </div>
         </div>
       </div>
     );
+  }
+
+  // 비관리자 계정 접근 차단 — 빈 화면(0개) 대신 명확한 경고를 노출합니다.
+  if (deniedEmail) {
+    return <AccessDeniedScreen email={deniedEmail} onSwitchAccount={handleSwitchAccount} />;
   }
 
   return (
@@ -170,12 +238,12 @@ export default function AdminPage() {
       <div className="relative max-w-[1400px] mx-auto p-4 md:p-8">
         {/* ─── Top Bar ─── */}
         <div className="flex items-center justify-between mb-8">
-          <Link href="/" className="text-xs text-[var(--muted)] hover:text-white transition-colors duration-200">
+          <Link href="/" className="text-xs text-[var(--muted)] hover:text-[var(--text)] transition-colors duration-200">
             ← 라이브클럽맵
           </Link>
           <button
             onClick={handleLogout}
-            className="text-xs text-[var(--muted)] hover:text-white transition-all duration-200 px-4 py-2 rounded-lg border border-[var(--line)] hover:border-[var(--accent-border)] active:scale-95"
+            className="text-xs text-[var(--muted)] hover:text-[var(--text)] transition-all duration-200 px-4 py-2 rounded-lg border border-[var(--line)] hover:border-[var(--accent-border)] active:scale-95"
           >
             로그아웃
           </button>
@@ -187,7 +255,7 @@ export default function AdminPage() {
             <span className="live-dot" />
             Control Center
           </p>
-          <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-white">Admin</h1>
+          <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-[var(--text)]">Admin</h1>
           <p className="text-[var(--muted)] text-xs mt-1.5">라이브클럽맵 인벤토리 및 자동화 파이프라인 관리</p>
         </header>
 
@@ -215,11 +283,57 @@ function TabButton({ active, onClick, label }: { active: boolean, onClick: () =>
       onClick={onClick}
       className={`px-5 py-2.5 rounded-xl text-xs font-semibold transition-all duration-300 active:scale-95 ${active
         ? "bg-[var(--accent)] text-[#0a0a12] shadow-[0_2px_16px_var(--accent-glow)]"
-        : "text-[var(--muted)] hover:text-white hover:bg-white/5"
+        : "text-[var(--muted)] hover:text-[var(--text)] hover:bg-[var(--panel-2)]"
         }`}
     >
       {label}
     </button>
+  );
+}
+
+// ──────────────────────────────────────────────────
+// 비관리자 접근 차단 화면
+// ──────────────────────────────────────────────────
+function AccessDeniedScreen({ email, onSwitchAccount }: { email: string; onSwitchAccount: () => void }) {
+  return (
+    <div className="min-h-screen bg-[var(--bg)] text-[var(--text)] flex items-center justify-center px-4">
+      <div className="w-full max-w-md bg-[var(--panel)] border border-[var(--line)] rounded-3xl p-8 text-center animate-fade-in">
+        <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-red-500/10 border border-red-500/20">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-red-400">
+            <path d="M18 6 6 18M6 6l12 12" />
+          </svg>
+        </div>
+
+        <h1 className="text-lg font-bold text-[var(--text)]">권한이 없는 계정입니다</h1>
+        <p className="mt-2 text-sm text-[var(--muted)] leading-relaxed">
+          이 계정은 관리자 권한이 없어 어드민 페이지에 접근할 수 없습니다.
+        </p>
+
+        <div className="mt-5 rounded-xl bg-[var(--panel-2)] border border-[var(--line)] px-4 py-3 text-left">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-[var(--faint)]">현재 로그인</p>
+          <p className="mt-1 text-sm font-semibold text-[var(--text)] break-all">{email}</p>
+        </div>
+
+        <p className="mt-4 text-[11px] text-[var(--faint)]">
+          관리자 계정({ADMIN_EMAILS.join(", ")})으로 다시 로그인해주세요.
+        </p>
+
+        <div className="mt-6 flex gap-3">
+          <button
+            onClick={onSwitchAccount}
+            className="flex-1 py-3 rounded-xl font-semibold text-sm bg-gradient-to-br from-[var(--accent)] to-[var(--accent-deep)] text-[#0a0a12] hover:brightness-110 transition-all duration-200 active:scale-[0.98]"
+          >
+            다른 계정으로 로그인
+          </button>
+          <Link
+            href="/"
+            className="px-5 py-3 rounded-xl text-sm font-medium border border-[var(--line-strong)] text-[var(--muted)] hover:text-[var(--text)] hover:border-[var(--accent-border)] transition-all duration-200 active:scale-95 flex items-center"
+          >
+            홈으로
+          </Link>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -241,6 +355,8 @@ function EventsTab() {
   const [timetableImageUrl, setTimetableImageUrl] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDedupRunning, setIsDedupRunning] = useState(false);
+  const [isFillingPosters, setIsFillingPosters] = useState(false);
+  const [fillProgress, setFillProgress] = useState<{ current: number; total: number } | null>(null);
   const [analyzingId, setAnalyzingId] = useState<string | null>(null);
 
   // Optimistic UI 상태: 서버 확정 전 즉시 화면에 반영하고, 실패 시 롤백합니다.
@@ -313,9 +429,30 @@ function EventsTab() {
 
     setIsSubmitting(true);
     try {
+      // 인스타 링크가 있으면 백그라운드에서 포스터 자동 추출
+      let autoFetchedPosterUrl = "";
+      if (instagramUrl) {
+        try {
+          const res = await fetch("/api/fetch-single-post", {
+            method: "POST",
+            headers: await adminApiHeaders(),
+            body: JSON.stringify({ url: instagramUrl }),
+          });
+          const data = await res.json();
+          if (data.success && data.posterUrl) {
+            autoFetchedPosterUrl = data.posterUrl;
+          }
+        } catch (err) {
+          console.error("포스터 자동 추출 실패:", err);
+        }
+      }
+
       if (editingId) {
         const id = editingId;
-        const payload = { title, date, endDate, time, venueName, artistNames, sourceUrl, instagramUrl, price, timetableImageUrl };
+        const payload: any = { title, date, endDate, time, venueName, artistNames, sourceUrl, instagramUrl, price, timetableImageUrl };
+        if (autoFetchedPosterUrl) {
+          payload.posterUrl = autoFetchedPosterUrl;
+        }
 
         // 낙관적 업데이트: 서버 응답을 기다리지 않고 즉시 화면에 반영
         setOptimisticEdits((prev) => ({ ...prev, [id]: payload }));
@@ -338,6 +475,7 @@ function EventsTab() {
       } else {
         await addDoc(collection(db, "events"), {
           title, date, endDate, time, venueName, artistNames, sourceUrl, instagramUrl, price, timetableImageUrl,
+          ...(autoFetchedPosterUrl ? { posterUrl: autoFetchedPosterUrl } : {}),
           createdAt: serverTimestamp(),
         });
         handleCancelEdit();
@@ -439,14 +577,61 @@ function EventsTab() {
     }
   };
 
+  // 빈 포스터 일괄 업데이트
+  const handleFillMissingPosters = async () => {
+    // 1. posterUrl이 없고 instagramUrl이 있는 이벤트 필터링
+    const targetEvents = displayedEvents.filter(ev => !ev.posterUrl?.trim() && ev.instagramUrl?.trim());
+    
+    if (targetEvents.length === 0) {
+      alert("빈 포스터 중 채울 수 있는(인스타그램 링크가 있는) 항목이 없습니다.");
+      return;
+    }
+    
+    if (!window.confirm(`총 ${targetEvents.length}개의 빈 포스터를 찾아 채웁니다. (백그라운드 스크래핑이 진행되며 시간이 소요될 수 있습니다.) 계속하시겠습니까?`)) {
+      return;
+    }
+    
+    setIsFillingPosters(true);
+    let successCount = 0;
+    
+    for (let i = 0; i < targetEvents.length; i++) {
+      const ev = targetEvents[i];
+      setFillProgress({ current: i + 1, total: targetEvents.length });
+      try {
+        const res = await fetch("/api/fetch-single-post", {
+          method: "POST",
+          headers: await adminApiHeaders(),
+          body: JSON.stringify({ url: ev.instagramUrl }),
+        });
+        const data = await res.json();
+        
+        if (data.success && data.posterUrl) {
+          // Optimistic UI 반영용 (선택사항, onSnapshot이 있으므로 서버 갱신 시 자동 반영됨)
+          await updateDoc(doc(db, "events", ev.id), {
+            posterUrl: data.posterUrl,
+          });
+          successCount++;
+        } else {
+          console.error(`[${ev.id}] 추출 실패:`, data.error);
+        }
+      } catch (error) {
+        console.error(`[${ev.id}] 통신 에러:`, error);
+      }
+    }
+    
+    setIsFillingPosters(false);
+    setFillProgress(null);
+    alert(`포스터 업데이트 완료! 총 ${successCount}개의 이미지를 성공적으로 채웠습니다.`);
+  };
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8">
       {/* ─── Form Panel ─── */}
       <div className="lg:col-span-4 flex flex-col gap-4 self-start lg:sticky lg:top-8 max-h-[calc(100vh-4rem)] overflow-y-auto custom-scrollbar">
         <div className="bg-[var(--panel)] border border-[var(--line)] rounded-2xl p-6 relative">
-          <div className={`absolute top-0 inset-x-0 h-px ${editingId ? "bg-[var(--accent)]" : "bg-white/10"}`} />
+          <div className={`absolute top-0 inset-x-0 h-px ${editingId ? "bg-[var(--accent)]" : "bg-[var(--panel-3)]"}`} />
 
-          <h2 className="text-sm font-semibold mb-6 text-white flex items-center gap-2">
+          <h2 className="text-sm font-semibold mb-6 text-[var(--text)] flex items-center gap-2">
             <span className={`w-1.5 h-1.5 rounded-full ${editingId ? "bg-[var(--accent)]" : "bg-white/40"}`} />
             {editingId ? "수정하기" : "새 공연 등록"}
           </h2>
@@ -480,7 +665,7 @@ function EventsTab() {
                   type="button"
                   onClick={handleCancelEdit}
                   disabled={isSubmitting}
-                  className="px-5 border border-[var(--line-strong)] text-[var(--muted)] hover:text-white hover:border-[var(--accent-border)] rounded-xl text-sm font-medium transition-all duration-200 active:scale-95"
+                  className="px-5 border border-[var(--line-strong)] text-[var(--muted)] hover:text-[var(--text)] hover:border-[var(--accent-border)] rounded-xl text-sm font-medium transition-all duration-200 active:scale-95"
                 >
                   취소
                 </button>
@@ -492,20 +677,36 @@ function EventsTab() {
 
       {/* ─── Event List ─── */}
       <div className="lg:col-span-8 flex flex-col gap-4">
-        <div className="flex items-center justify-between px-1">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between px-1 gap-3">
           <div className="flex items-center gap-2">
-            <h2 className="text-sm font-semibold text-white">등록된 공연</h2>
+            <h2 className="text-sm font-semibold text-[var(--text)]">등록된 공연</h2>
             <span className="text-[10px] font-bold bg-[var(--accent-soft)] text-[var(--accent)] px-2 py-1 rounded-md tabular-nums">
               {displayedEvents.length}
             </span>
           </div>
-          <button
-            onClick={handleDedup}
-            disabled={isDedupRunning}
-            className="text-[11px] font-semibold text-[var(--muted)] hover:text-white px-3 py-1.5 rounded-lg border border-[var(--line)] hover:border-[var(--accent-border)] transition-all duration-200 active:scale-95 disabled:opacity-50"
-          >
-            {isDedupRunning ? "정리 중..." : "🧹 중복 정리"}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={handleFillMissingPosters}
+              disabled={isDedupRunning || isFillingPosters}
+              className="text-[11px] font-semibold text-[var(--muted)] hover:text-[var(--text)] px-3 py-1.5 rounded-lg border border-[var(--line)] hover:border-[var(--accent-border)] transition-all duration-200 active:scale-95 disabled:opacity-50 flex items-center gap-2"
+            >
+              {isFillingPosters && fillProgress ? (
+                <>
+                  <div className="w-3 h-3 border-2 border-[var(--muted)] border-t-[var(--accent)] rounded-full animate-spin" />
+                  채우는 중 ({fillProgress.current}/{fillProgress.total})
+                </>
+              ) : (
+                "🖼 빈 포스터 자동 채우기"
+              )}
+            </button>
+            <button
+              onClick={handleDedup}
+              disabled={isDedupRunning || isFillingPosters}
+              className="text-[11px] font-semibold text-[var(--muted)] hover:text-[var(--text)] px-3 py-1.5 rounded-lg border border-[var(--line)] hover:border-[var(--accent-border)] transition-all duration-200 active:scale-95 disabled:opacity-50"
+            >
+              {isDedupRunning ? "정리 중..." : "🧹 중복 정리"}
+            </button>
+          </div>
         </div>
 
         {displayedEvents.length === 0 ? (
@@ -521,11 +722,11 @@ function EventsTab() {
                   } rounded-2xl p-5 transition-all hover-card flex flex-col`}
               >
                 <div className="flex-1">
-                  <h3 className="font-semibold text-white mb-4 line-clamp-2 leading-snug">{ev.title}</h3>
+                  <h3 className="font-semibold text-[var(--text)] mb-4 line-clamp-2 leading-snug">{ev.title}</h3>
                   <div className="space-y-2 text-xs text-[var(--muted)]">
                     {ev.date && (
                       <p className="flex gap-3">
-                        <span className="text-white/20 font-medium shrink-0 w-8">일시</span>
+                        <span className="text-[var(--faint)] font-medium shrink-0 w-8">일시</span>
                         <span className="text-[var(--text-secondary)]">
                           {ev.date}{ev.endDate ? ` ~ ${ev.endDate}` : ""} {ev.time}
                         </span>
@@ -533,20 +734,20 @@ function EventsTab() {
                     )}
                     {ev.venueName && (
                       <p className="flex gap-3">
-                        <span className="text-white/20 font-medium shrink-0 w-8">장소</span>
+                        <span className="text-[var(--faint)] font-medium shrink-0 w-8">장소</span>
                         <span className="text-[var(--text-secondary)]">{ev.venueName}</span>
                       </p>
                     )}
                     {ev.artistNames && (
                       <p className="flex gap-3">
-                        <span className="text-white/20 font-medium shrink-0 w-8">출연</span>
+                        <span className="text-[var(--faint)] font-medium shrink-0 w-8">출연</span>
                         <span className="text-[var(--text-secondary)] line-clamp-2">{ev.artistNames}</span>
                       </p>
                     )}
                     {ev.price && (
                       <p className="flex gap-3">
-                        <span className="text-white/20 font-medium shrink-0 w-8">가격</span>
-                        <span className="text-white font-semibold">{ev.price}</span>
+                        <span className="text-[var(--faint)] font-medium shrink-0 w-8">가격</span>
+                        <span className="text-[var(--text)] font-semibold">{ev.price}</span>
                       </p>
                     )}
                     {ev.instagramUrl && (
@@ -567,19 +768,19 @@ function EventsTab() {
                     onClick={() => handleAnalyzeLineup(ev.id)}
                     disabled={analyzingId === ev.id}
                     title="포스터 이미지를 AI로 분석해 날짜별 라인업과 종료일을 채웁니다 (페스티벌용)"
-                    className="flex-1 bg-white/5 hover:bg-[var(--accent-soft)] text-[var(--muted)] hover:text-[var(--accent)] py-2.5 rounded-xl text-[11px] font-semibold transition-all duration-200 active:scale-95 disabled:opacity-50"
+                    className="flex-1 bg-[var(--panel-2)] hover:bg-[var(--accent-soft)] text-[var(--muted)] hover:text-[var(--accent)] py-2.5 rounded-xl text-[11px] font-semibold transition-all duration-200 active:scale-95 disabled:opacity-50"
                   >
                     {analyzingId === ev.id ? "분석 중..." : "라인업 분석"}
                   </button>
                   <button
                     onClick={() => handleEditClick(ev)}
-                    className="flex-1 bg-white/5 hover:bg-[var(--accent-soft)] text-[var(--muted)] hover:text-[var(--accent)] py-2.5 rounded-xl text-[11px] font-semibold transition-all duration-200 active:scale-95"
+                    className="flex-1 bg-[var(--panel-2)] hover:bg-[var(--accent-soft)] text-[var(--muted)] hover:text-[var(--accent)] py-2.5 rounded-xl text-[11px] font-semibold transition-all duration-200 active:scale-95"
                   >
                     수정
                   </button>
                   <button
                     onClick={() => handleDelete(ev.id)}
-                    className="flex-1 bg-white/5 hover:bg-red-500/10 text-white/30 hover:text-red-400 py-2.5 rounded-xl text-[11px] font-semibold transition-all duration-200 active:scale-95"
+                    className="flex-1 bg-[var(--panel-2)] hover:bg-red-500/10 text-[var(--muted)] hover:text-red-400 py-2.5 rounded-xl text-[11px] font-semibold transition-all duration-200 active:scale-95"
                   >
                     삭제
                   </button>
@@ -676,8 +877,8 @@ function SourcesTab() {
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8">
       <div className="lg:col-span-4 flex flex-col gap-4 self-start lg:sticky lg:top-8 max-h-[calc(100vh-4rem)] overflow-y-auto custom-scrollbar">
         <div className="bg-[var(--panel)] border border-[var(--line)] rounded-2xl p-6 relative">
-          <div className="absolute top-0 inset-x-0 h-px bg-white/10" />
-          <h2 className="text-sm font-semibold mb-6 text-white flex items-center gap-2">
+          <div className="absolute top-0 inset-x-0 h-px bg-[var(--panel-3)]" />
+          <h2 className="text-sm font-semibold mb-6 text-[var(--text)] flex items-center gap-2">
             <span className="w-1.5 h-1.5 rounded-full bg-white/40" />
             타겟 추가
           </h2>
@@ -685,18 +886,18 @@ function SourcesTab() {
             <Input label="인스타그램 아이디" value={accountName} onChange={setAccountName} required placeholder="rollinghall" />
             <div>
               <label className="block text-[11px] font-medium text-[var(--muted)] mb-1.5 pl-0.5">분류</label>
-              <select value={category} onChange={e => setCategory(e.target.value)} className="w-full bg-white/5 border border-[var(--line)] focus:border-[var(--accent-border)] rounded-xl px-4 py-3 text-xs text-white outline-none appearance-none transition-colors">
+              <select value={category} onChange={e => setCategory(e.target.value)} className="w-full bg-[var(--panel-2)] border border-[var(--line)] focus:border-[var(--accent-border)] rounded-xl px-4 py-3 text-xs text-[var(--text)] outline-none appearance-none transition-colors">
                 <option value="공연장" className="bg-black">공연장</option>
                 <option value="밴드" className="bg-black">밴드</option>
                 <option value="기획사" className="bg-black">기획사</option>
               </select>
             </div>
             <div
-              className="flex items-center justify-between p-4 bg-white/[0.03] rounded-xl cursor-pointer hover:bg-white/[0.05] transition"
+              className="flex items-center justify-between p-4 bg-[var(--panel-2)] rounded-xl cursor-pointer hover:bg-[var(--panel-3)] transition"
               onClick={() => setIsActive(!isActive)}
             >
               <span className="text-xs font-medium text-[var(--text-secondary)]">자동 수집 활성화</span>
-              <div className={`w-9 h-5 rounded-full p-0.5 transition-colors duration-300 ${isActive ? 'bg-[var(--accent)]' : 'bg-white/10'}`}>
+              <div className={`w-9 h-5 rounded-full p-0.5 transition-colors duration-300 ${isActive ? 'bg-[var(--accent)]' : 'bg-[var(--panel-3)]'}`}>
                 <div className={`w-4 h-4 rounded-full transition-transform duration-300 ${isActive ? 'translate-x-4 bg-[#0a0a12]' : 'translate-x-0 bg-white/40'}`} />
               </div>
             </div>
@@ -710,7 +911,7 @@ function SourcesTab() {
       <div className="lg:col-span-8 flex flex-col gap-4">
         <div className="flex items-center justify-between px-1">
           <div className="flex items-center gap-2">
-            <h2 className="text-sm font-semibold text-white">소스 계정</h2>
+            <h2 className="text-sm font-semibold text-[var(--text)]">소스 계정</h2>
             <span className="text-[10px] font-bold bg-[var(--accent-soft)] text-[var(--accent)] px-2 py-1 rounded-md">{displayedSources.length}</span>
           </div>
           <button
@@ -807,7 +1008,7 @@ function SourcesTab() {
                         await updateDoc(doc(db, "events", matched.id), { ...merged, updatedAt: serverTimestamp() });
                       } else if (incoming.venueName) {
                         // 완전한 정보 → 자동 발행
-                        await addDoc(collection(db, "events"), {
+                        const newRef = await addDoc(collection(db, "events"), {
                           title: incoming.title,
                           date: incoming.date,
                           endDate: incoming.endDate || "",
@@ -823,6 +1024,8 @@ function SourcesTab() {
                           createdAt: serverTimestamp(),
                           autoPublished: true,
                         });
+                        // 관심 아티스트 구독자에게 새 공연 푸시 (수동 수집 발행 트리거)
+                        void notifyNewEvent(incoming, newRef.id);
                       } else {
                         // 장소 누락 → 승인 큐
                         await addDoc(collection(db, "candidate_events"), {
@@ -850,7 +1053,7 @@ function SourcesTab() {
                 alert("시스템 에러: " + e);
               }
             }}
-            className="text-[11px] font-semibold text-[var(--muted)] hover:text-white px-3 py-1.5 rounded-lg border border-[var(--line)] hover:border-[var(--accent-border)] transition-all duration-200 active:scale-95"
+            className="text-[11px] font-semibold text-[var(--muted)] hover:text-[var(--text)] px-3 py-1.5 rounded-lg border border-[var(--line)] hover:border-[var(--accent-border)] transition-all duration-200 active:scale-95"
           >
             ⚡ 수동 수집 실행
           </button>
@@ -863,17 +1066,17 @@ function SourcesTab() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {displayedSources.map(s => (
-              <div key={s.id} className={`flex flex-col justify-between p-5 rounded-2xl border transition-all hover-card ${s.isActive ? "bg-[var(--panel)] border-[var(--line)]" : "bg-[var(--bg)] border-white/[0.03] opacity-50"}`}>
+              <div key={s.id} className={`flex flex-col justify-between p-5 rounded-2xl border transition-all hover-card ${s.isActive ? "bg-[var(--panel)] border-[var(--line)]" : "bg-[var(--bg)] border-[var(--line)] opacity-50"}`}>
                 <div className="flex items-start justify-between mb-6">
                   <span className="px-2 py-1 rounded-md text-[10px] font-bold bg-[var(--accent-soft)] text-[var(--accent)]">
                     {s.category}
                   </span>
                   {s.isActive && <div className="live-dot" />}
                 </div>
-                <h3 className="font-semibold text-white mb-5">@{s.accountName}</h3>
+                <h3 className="font-semibold text-[var(--text)] mb-5">@{s.accountName}</h3>
                 <div className="flex gap-2 pt-3 border-t border-[var(--line)]">
-                  <button onClick={() => toggle(s.id, s.isActive)} className="flex-1 py-2.5 bg-white/5 hover:bg-[var(--accent-soft)] text-[var(--muted)] hover:text-[var(--accent)] rounded-xl text-[11px] font-semibold transition-all duration-200 active:scale-95">{s.isActive ? "정지" : "재개"}</button>
-                  <button onClick={() => del(s.id)} className="flex-1 py-2.5 bg-white/5 hover:bg-red-500/10 text-white/30 hover:text-red-400 rounded-xl text-[11px] font-semibold transition-all duration-200 active:scale-95">삭제</button>
+                  <button onClick={() => toggle(s.id, s.isActive)} className="flex-1 py-2.5 bg-[var(--panel-2)] hover:bg-[var(--accent-soft)] text-[var(--muted)] hover:text-[var(--accent)] rounded-xl text-[11px] font-semibold transition-all duration-200 active:scale-95">{s.isActive ? "정지" : "재개"}</button>
+                  <button onClick={() => del(s.id)} className="flex-1 py-2.5 bg-[var(--panel-2)] hover:bg-red-500/10 text-[var(--muted)] hover:text-red-400 rounded-xl text-[11px] font-semibold transition-all duration-200 active:scale-95">삭제</button>
                 </div>
               </div>
             ))}
@@ -929,75 +1132,75 @@ function CandidatesTab() {
 
         let autoCount = 0;
         let mergedCount = 0;
+        let failedCount = 0;
+
         for (const can of candidates) {
-          // 과거 날짜 후보는 삭제
-          if (adminIsPastDate(can.parsedDate)) {
+          // 한 후보 처리가 실패해도 나머지 자동 승인이 막히지 않도록 개별 try/catch로 격리
+          try {
+            // 과거 날짜 후보는 삭제
+            if (adminIsPastDate(can.parsedDate)) {
+              await deleteDoc(doc(db, "candidate_events", can.id));
+              continue;
+            }
+
+            // 정보 부족(제목 또는 날짜 누락) 후보는 큐에 쌓지 않고 자동 삭제
+            if (!hasMinimumEventInfo({ title: can.parsedTitle, date: can.parsedDate })) {
+              await deleteDoc(doc(db, "candidate_events", can.id));
+              continue;
+            }
+
+            const canRange = extractDateRange(can.parsedDate);
+            const incoming: ConcertRecord = {
+              title: can.parsedTitle,
+              date: canRange.start || normalizeDateString(can.parsedDate),
+              endDate: normalizeDateString(can.parsedEndDate) || canRange.end,
+              time: can.parsedTime || "",
+              venueName: canonicalVenueName(can.parsedVenue),
+              artistNames: can.parsedArtists || "",
+              sourceUrl: can.parsedTicket || "",
+              instagramUrl: can.instaLink || "",
+              price: can.parsedPrice || "",
+              posterUrl: can.posterUrl || "",
+              dayLineups: (can.parsedDayLineups || []).map((d) => ({ date: normalizeDateString(d.date), artists: d.artists })).filter((d) => d.date),
+            };
+
+            // 같은 공연이 이미 있으면 → 병합 업데이트 (라인업 추가분 자동 반영) 후 후보 제거
+            const matched = existingEvents.find(ev => isSameConcert(ev, incoming));
+            if (matched) {
+              const merged = mergeConcerts(matched, incoming) as ConcertRecord;
+              await updateDoc(doc(db, "events", matched.id), { ...toSafeEventPayload(merged), updatedAt: serverTimestamp() });
+              Object.assign(matched, merged);
+              await deleteDoc(doc(db, "candidate_events", can.id));
+              mergedCount++;
+              continue;
+            }
+
+            // events에 자동 등록 (규칙 길이 제한에 맞춘 안전 페이로드)
+            const newRef = await addDoc(collection(db, "events"), {
+              ...toSafeEventPayload(incoming),
+              createdAt: serverTimestamp(),
+              autoPublished: true,
+            });
+
+            // candidate에서 제거
             await deleteDoc(doc(db, "candidate_events", can.id));
-            continue;
+
+            // 중복 방지를 위해 방금 등록한 것도 목록에 추가
+            existingEvents.push({ id: "auto-" + can.id, ...incoming } as EventItem);
+
+            // 관심 아티스트 구독자에게 새 공연 푸시
+            void notifyNewEvent(incoming, newRef.id);
+
+            autoCount++;
+          } catch (perCandidateError) {
+            // 이 후보만 실패 — 큐에 남겨두고 다음으로 진행 (전체 중단 방지)
+            failedCount++;
+            console.error(`[자동 승인] 후보 ${can.id} 처리 실패(건너뜀):`, perCandidateError);
           }
-
-          // 정보 부족(제목 또는 날짜 누락) 후보는 큐에 쌓지 않고 자동 삭제
-          if (!hasMinimumEventInfo({ title: can.parsedTitle, date: can.parsedDate })) {
-            await deleteDoc(doc(db, "candidate_events", can.id));
-            continue;
-          }
-
-          const canRange = extractDateRange(can.parsedDate);
-          const incoming: ConcertRecord = {
-            title: can.parsedTitle,
-            date: canRange.start || normalizeDateString(can.parsedDate),
-            endDate: normalizeDateString(can.parsedEndDate) || canRange.end,
-            time: can.parsedTime || "",
-            venueName: canonicalVenueName(can.parsedVenue),
-            artistNames: can.parsedArtists || "",
-            sourceUrl: can.parsedTicket || "",
-            instagramUrl: can.instaLink || "",
-            price: can.parsedPrice || "",
-            posterUrl: can.posterUrl || "",
-            dayLineups: (can.parsedDayLineups || []).map((d) => ({ date: normalizeDateString(d.date), artists: d.artists })).filter((d) => d.date),
-          };
-
-          // 같은 공연이 이미 있으면 → 병합 업데이트 (라인업 추가분 자동 반영) 후 후보 제거
-          const matched = existingEvents.find(ev => isSameConcert(ev, incoming));
-          if (matched) {
-            const merged = mergeConcerts(matched, incoming);
-            await updateDoc(doc(db, "events", matched.id), { ...merged, updatedAt: serverTimestamp() });
-            Object.assign(matched, merged);
-            await deleteDoc(doc(db, "candidate_events", can.id));
-            mergedCount++;
-            continue;
-          }
-
-          // events에 자동 등록
-          await addDoc(collection(db, "events"), {
-            title: incoming.title,
-            date: incoming.date,
-            endDate: incoming.endDate || "",
-            time: incoming.time,
-            venueName: incoming.venueName,
-            artistNames: incoming.artistNames,
-            sourceUrl: incoming.sourceUrl,
-            instagramUrl: incoming.instagramUrl,
-            price: incoming.price,
-            dayLineups: incoming.dayLineups || [],
-            createdAt: serverTimestamp(),
-            autoPublished: true,
-          });
-
-          // candidate에서 제거
-          await deleteDoc(doc(db, "candidate_events", can.id));
-
-          // 중복 방지를 위해 방금 등록한 것도 목록에 추가
-          existingEvents.push({
-            id: "auto-" + can.id,
-            ...incoming,
-          } as EventItem);
-
-          autoCount++;
         }
 
-        if (autoCount > 0 || mergedCount > 0) {
-          console.log(`[자동 승인] 발행 ${autoCount}건, 기존 공연 병합 ${mergedCount}건.`);
+        if (autoCount > 0 || mergedCount > 0 || failedCount > 0) {
+          console.log(`[자동 승인] 발행 ${autoCount}건, 병합 ${mergedCount}건, 실패(건너뜀) ${failedCount}건.`);
         }
       } catch (err) {
         console.error("[자동 승인 에러]", err);
@@ -1213,11 +1416,11 @@ function CandidatesTab() {
       {approvingItem && (
         <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
           <div className="bg-[var(--bg-elevated)] border border-[var(--line-strong)] w-full max-w-xl rounded-2xl p-6 max-h-[90vh] overflow-y-auto custom-scrollbar shadow-[0_24px_80px_rgba(0,0,0,0.6)]">
-            <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+            <h2 className="text-lg font-bold text-[var(--text)] mb-4 flex items-center gap-2">
               <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)]" />
               승인 발행
             </h2>
-            <div className="mb-4 p-3 bg-white/[0.03] rounded-xl max-h-24 overflow-y-auto custom-scrollbar text-[11px] text-[var(--muted)] border border-[var(--line)] leading-relaxed">
+            <div className="mb-4 p-3 bg-[var(--panel-2)] rounded-xl max-h-24 overflow-y-auto custom-scrollbar text-[11px] text-[var(--muted)] border border-[var(--line)] leading-relaxed">
               <span className="text-[var(--text-secondary)] block mb-1 font-semibold">원문 참고:</span>
               {approvingItem.caption || "캡션 없음"}
             </div>
@@ -1238,7 +1441,7 @@ function CandidatesTab() {
 
               <div className="pt-4 flex gap-3">
                 <button disabled={isApproving} className="flex-1 bg-gradient-to-br from-[var(--accent)] to-[var(--accent-deep)] text-[#0a0a12] hover:brightness-110 hover:shadow-[0_4px_20px_var(--accent-glow)] font-bold py-3 rounded-xl text-sm transition-all duration-300 active:scale-[0.98] disabled:opacity-50">발행</button>
-                <button type="button" onClick={() => setApprovingItem(null)} className="px-6 border border-[var(--line-strong)] text-[var(--muted)] hover:text-white hover:border-[var(--accent-border)] font-medium py-3 rounded-xl text-sm transition-all duration-200 active:scale-95">취소</button>
+                <button type="button" onClick={() => setApprovingItem(null)} className="px-6 border border-[var(--line-strong)] text-[var(--muted)] hover:text-[var(--text)] hover:border-[var(--accent-border)] font-medium py-3 rounded-xl text-sm transition-all duration-200 active:scale-95">취소</button>
               </div>
             </form>
           </div>
@@ -1249,14 +1452,14 @@ function CandidatesTab() {
         {/* ─── Inject Form ─── */}
         <div className="lg:col-span-4 flex flex-col gap-4 self-start lg:sticky lg:top-8 max-h-[calc(100vh-4rem)] overflow-y-auto custom-scrollbar">
           <div className="bg-[var(--panel)] border border-[var(--line)] rounded-2xl p-6 relative">
-            <div className="absolute top-0 inset-x-0 h-px bg-white/10" />
-            <h2 className="text-sm font-semibold mb-4 text-white">수동 입력</h2>
+            <div className="absolute top-0 inset-x-0 h-px bg-[var(--panel-3)]" />
+            <h2 className="text-sm font-semibold mb-4 text-[var(--text)]">수동 입력</h2>
             <p className="text-[11px] text-[var(--muted)] mb-5 leading-relaxed">링크를 넣으면 AI가 캡션을 분석합니다.</p>
             <form onSubmit={handleInject} className="space-y-3">
               <Input label="인스타 링크" value={instaLink} onChange={setInstaLink} required />
               <div>
                 <label className="block text-[11px] font-medium text-[var(--muted)] mb-1.5 pl-0.5">캡션</label>
-                <textarea value={caption} onChange={e => setCaption(e.target.value)} placeholder="AI가 분석할 원문" className="w-full bg-white/5 border border-[var(--line)] focus:border-[var(--accent-border)] rounded-xl px-4 py-3 text-xs text-white h-28 resize-none outline-none custom-scrollbar placeholder:text-white/20 transition-colors" />
+                <textarea value={caption} onChange={e => setCaption(e.target.value)} placeholder="AI가 분석할 원문" className="w-full bg-[var(--panel-2)] border border-[var(--line)] focus:border-[var(--accent-border)] rounded-xl px-4 py-3 text-xs text-[var(--text)] h-28 resize-none outline-none custom-scrollbar placeholder:text-[var(--faint)] transition-colors" />
               </div>
               <button disabled={isInjecting} className="w-full bg-[var(--accent-soft)] text-[var(--accent)] hover:bg-[var(--accent)] hover:text-[#0a0a12] py-3 rounded-xl font-semibold text-sm transition-all duration-300 active:scale-[0.98] disabled:opacity-50">분석 후 큐에 추가</button>
             </form>
@@ -1285,7 +1488,7 @@ function CandidatesTab() {
             return (
               <>
                 <div className="flex items-center gap-2 px-1">
-                  <h2 className="text-sm font-semibold text-white">승인 대기</h2>
+                  <h2 className="text-sm font-semibold text-[var(--text)]">승인 대기</h2>
                   <span className="text-[10px] font-bold bg-[var(--accent-soft)] text-[var(--accent)] px-2 py-1 rounded-md">{visibleCandidates.length}</span>
                 </div>
                 {visibleCandidates.length === 0 ? (
@@ -1300,9 +1503,9 @@ function CandidatesTab() {
                           <a href={can.instaLink} target="_blank" rel="noreferrer" className="text-[11px] font-medium text-[var(--muted)] hover:text-[var(--accent)] underline underline-offset-4 decoration-white/10 inline-block mb-2 transition-colors">원본 ↗</a>
 
                           {can.posterUrl && (
-                            <a href={can.posterUrl} target="_blank" rel="noreferrer" className="block mb-3 h-40 w-full rounded-xl overflow-hidden bg-white/[0.03] border border-[var(--line)] relative group shrink-0">
+                            <a href={can.posterUrl} target="_blank" rel="noreferrer" className="block mb-3 h-40 w-full rounded-xl overflow-hidden bg-[var(--panel-2)] border border-[var(--line)] relative group shrink-0">
                               <img
-                                src={can.posterUrl}
+                                src={can.posterUrl.startsWith('http') ? `/api/proxy-image?url=${encodeURIComponent(can.posterUrl)}` : can.posterUrl}
                                 alt="포스터"
                                 referrerPolicy="no-referrer"
                                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
@@ -1311,27 +1514,27 @@ function CandidatesTab() {
                             </a>
                           )}
 
-                          <div className="text-[11px] text-white/25 line-clamp-2 leading-relaxed bg-white/[0.03] p-3 rounded-lg mb-3">{can.caption || "내용 없음"}</div>
+                          <div className="text-[11px] text-[var(--text)]/25 line-clamp-2 leading-relaxed bg-[var(--panel-2)] p-3 rounded-lg mb-3">{can.caption || "내용 없음"}</div>
 
                           {/* AI 분석 결과 */}
-                          <div className="bg-white/[0.03] border border-[var(--line)] rounded-xl p-3 space-y-1.5">
+                          <div className="bg-[var(--panel-2)] border border-[var(--line)] rounded-xl p-3 space-y-1.5">
                             <p className="text-[10px] font-bold text-[var(--accent)] uppercase tracking-wider mb-2">AI 분석</p>
 
-                            {can.parsedTitle && <p className="text-xs text-white/80 truncate flex gap-2"><span className="w-8 shrink-0 text-white/20 font-medium">제목</span> <span className="font-semibold text-white truncate">{can.parsedTitle}</span></p>}
-                            {(can.parsedDate || can.parsedTime) && <p className="text-xs text-white/70 truncate flex gap-2"><span className="w-8 shrink-0 text-white/20 font-medium">일시</span> <span>{can.parsedDate} {can.parsedTime}</span></p>}
-                            {can.parsedVenue && <p className="text-xs text-white/70 truncate flex gap-2"><span className="w-8 shrink-0 text-white/20 font-medium">장소</span> <span>{can.parsedVenue}</span></p>}
-                            {can.parsedArtists && <p className="text-xs text-white/70 truncate flex gap-2"><span className="w-8 shrink-0 text-white/20 font-medium">출연</span> <span>{can.parsedArtists}</span></p>}
-                            {can.parsedPrice && <p className="text-xs text-white font-semibold truncate flex gap-2"><span className="w-8 shrink-0 text-white/20 font-medium">가격</span> <span>{can.parsedPrice}</span></p>}
+                            {can.parsedTitle && <p className="text-xs text-[var(--text)]/80 truncate flex gap-2"><span className="w-8 shrink-0 text-[var(--faint)] font-medium">제목</span> <span className="font-semibold text-[var(--text)] truncate">{can.parsedTitle}</span></p>}
+                            {(can.parsedDate || can.parsedTime) && <p className="text-xs text-[var(--text)]/70 truncate flex gap-2"><span className="w-8 shrink-0 text-[var(--faint)] font-medium">일시</span> <span>{can.parsedDate} {can.parsedTime}</span></p>}
+                            {can.parsedVenue && <p className="text-xs text-[var(--text)]/70 truncate flex gap-2"><span className="w-8 shrink-0 text-[var(--faint)] font-medium">장소</span> <span>{can.parsedVenue}</span></p>}
+                            {can.parsedArtists && <p className="text-xs text-[var(--text)]/70 truncate flex gap-2"><span className="w-8 shrink-0 text-[var(--faint)] font-medium">출연</span> <span>{can.parsedArtists}</span></p>}
+                            {can.parsedPrice && <p className="text-xs text-[var(--text)] font-semibold truncate flex gap-2"><span className="w-8 shrink-0 text-[var(--faint)] font-medium">가격</span> <span>{can.parsedPrice}</span></p>}
 
                             {(!can.parsedTitle && !can.parsedDate && !can.parsedVenue) && (
-                              <p className="text-[11px] text-white/20">AI 분석 결과 없음</p>
+                              <p className="text-[11px] text-[var(--faint)]">AI 분석 결과 없음</p>
                             )}
                           </div>
                         </div>
 
                         <div className="flex gap-2 pt-3 border-t border-[var(--line)]">
                           <button onClick={() => openMod(can)} className="flex-1 py-2.5 bg-gradient-to-br from-[var(--accent)] to-[var(--accent-deep)] text-[#0a0a12] hover:brightness-110 rounded-xl text-[11px] font-bold transition-all duration-200 active:scale-95">승인</button>
-                          <button onClick={() => handleReject(can.id)} className="px-4 py-2.5 bg-white/5 text-white/30 hover:text-red-400 hover:bg-red-500/10 rounded-xl text-[11px] font-semibold transition-all duration-200 active:scale-95">반려</button>
+                          <button onClick={() => handleReject(can.id)} className="px-4 py-2.5 bg-[var(--panel-2)] text-[var(--muted)] hover:text-red-400 hover:bg-red-500/10 rounded-xl text-[11px] font-semibold transition-all duration-200 active:scale-95">반려</button>
                         </div>
                       </div>
                     ))}
@@ -1364,7 +1567,7 @@ function Input({ label, value, onChange, placeholder, type = "text", required = 
       <label className="block text-[11px] font-medium text-[var(--muted)] mb-1.5 pl-0.5">{label}</label>
       <input
         type={type} value={value} onChange={(e) => onChange(e.target.value)} required={required} placeholder={placeholder}
-        className="w-full bg-white/5 border border-[var(--line)] focus:border-[var(--accent-border)] focus:bg-white/[0.07] focus:shadow-[0_0_0_3px_var(--accent-soft)] rounded-xl px-4 py-3 text-xs text-white placeholder-white/15 transition-all duration-200 outline-none"
+        className="w-full bg-[var(--panel-2)] border border-[var(--line)] focus:border-[var(--accent-border)] focus:bg-white/[0.07] focus:shadow-[0_0_0_3px_var(--accent-soft)] rounded-xl px-4 py-3 text-xs text-[var(--text)] placeholder-white/15 transition-all duration-200 outline-none"
       />
     </div>
   );

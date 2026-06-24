@@ -17,6 +17,7 @@ import {
 import { splitArtists } from "@/lib/event-merge";
 import { venueGroupKey } from "@/lib/venues";
 import { useTicketbook } from "@/lib/ticketbook";
+import { useArtistPrefs, eventArtists } from "@/lib/artist-prefs";
 import { downloadEventIcs } from "@/lib/ics";
 import { shareEventImage } from "@/lib/share-image";
 
@@ -84,32 +85,55 @@ export default function EventDetailClient({ event }: { event: EventItem }) {
           ← 뒤로 가기
         </button>
 
-        <section className="panel animate-fade-in p-6 md:p-8">
-          <p className="text-sm font-medium text-[var(--muted)]">{formatSchedule(event)}</p>
+        <section className="panel animate-fade-in p-6 md:p-8 flex flex-col md:flex-row gap-8 items-start">
+          {/* 포스터 이미지 (적당한 사이즈) */}
+          {timetableUrl && (
+            <div 
+              className="w-full max-w-sm md:w-72 shrink-0 overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] cursor-pointer hover:border-[var(--accent-border)] transition-colors relative group"
+              onClick={() => setShowTimetable(true)}
+              title="크게 보기"
+            >
+              <img
+                src={timetableUrl.startsWith('http') ? `/api/proxy-image?url=${encodeURIComponent(timetableUrl)}` : timetableUrl}
+                alt="공연 포스터"
+                referrerPolicy="no-referrer"
+                className="w-full h-auto object-cover group-hover:scale-105 transition-transform duration-500"
+              />
+              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                <span className="text-white text-xs font-bold bg-black/50 px-3 py-1.5 rounded-lg backdrop-blur-sm">크게 보기</span>
+              </div>
+            </div>
+          )}
 
-          <h1 className="mt-3 text-4xl font-semibold tracking-[-0.04em] text-white md:text-5xl">
-            {event.title || "제목 없는 공연"}
-          </h1>
+          {/* 공연 정보 영역 */}
+          <div className="flex-1 w-full">
+            <p className="text-sm font-medium text-[var(--muted)]">{formatSchedule(event)}</p>
 
-          <div className="mt-8 grid gap-4 md:grid-cols-2">
-            {event.venueName && venueSlug ? (
-              <Link
-                href={`/venues/${encodeURIComponent(venueSlug)}`}
-                className="rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] p-5 transition-colors hover:border-[var(--accent-border)]"
-              >
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">장소</p>
-                <p className="mt-3 text-base font-medium text-white">
-                  {event.venueName}
-                  <span className="ml-2 text-xs font-semibold text-[var(--accent)]">이 공연장의 다른 공연 →</span>
-                </p>
-              </Link>
-            ) : (
-              <InfoCard label="장소" value={event.venueName || "미정"} />
-            )}
-            <InfoCard label="출연" value={event.artistNames || "미정"} />
-            <InfoCard label="일정" value={`${formatSchedule(event)}${event.time ? ` · ${event.time}` : ""}`} />
-            <InfoCard label="티켓" value={priceLines.join("\n") || "정보 없음"} preserveLineBreak />
-          </div>
+            <h1 className="mt-3 text-4xl font-semibold tracking-[-0.04em] text-[var(--text)] md:text-5xl">
+              {event.title || "제목 없는 공연"}
+            </h1>
+
+            <div className="mt-8 grid gap-4 md:grid-cols-2">
+              {event.venueName && venueSlug ? (
+                <Link
+                  href={`/venues/${encodeURIComponent(venueSlug)}`}
+                  className="rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] p-5 transition-colors hover:border-[var(--accent-border)]"
+                >
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">장소</p>
+                  <p className="mt-3 text-base font-medium text-[var(--text)]">
+                    {event.venueName}
+                    <span className="ml-2 text-xs font-semibold text-[var(--accent)]">이 공연장의 다른 공연 →</span>
+                  </p>
+                </Link>
+              ) : (
+                <InfoCard label="장소" value={event.venueName || "미정"} />
+              )}
+              <InfoCard label="일정" value={`${formatSchedule(event)}${event.time ? ` · ${event.time}` : ""}`} />
+              <InfoCard label="티켓" value={priceLines.join("\n") || "정보 없음"} preserveLineBreak />
+            </div>
+
+          {/* 출연 아티스트 — 관심/숨김 등록 */}
+          <ArtistPrefsSection event={event} />
 
           {/* 날짜별 라인업 + 나만의 라인업 선택 (멀티데이 페스티벌) */}
           {dayLineups.length > 0 && <MyLineupBuilder event={event} />}
@@ -153,9 +177,10 @@ export default function EventDetailClient({ event }: { event: EventItem }) {
 
             {timetableUrl ? (
               <button type="button" onClick={() => setShowTimetable(true)} className="secondary-btn">
-                {event.timetableImageUrl ? "타임테이블 보기" : "포스터 보기"}
+                {event.timetableImageUrl ? "타임테이블 크게 보기" : "포스터 크게 보기"}
               </button>
             ) : null}
+          </div>
           </div>
         </section>
       </div>
@@ -175,9 +200,102 @@ function InfoCard({
   return (
     <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] p-5">
       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">{label}</p>
-      <p className={`mt-3 text-base font-medium text-white ${preserveLineBreak ? "whitespace-pre-line" : ""}`}>
+      <p className={`mt-3 text-base font-medium text-[var(--text)] ${preserveLineBreak ? "whitespace-pre-line" : ""}`}>
         {value}
       </p>
+    </div>
+  );
+}
+
+/* ─── 출연 아티스트 관심/숨김 섹션 ─── */
+function ArtistPrefsSection({ event }: { event: EventItem }) {
+  const { isFavorite, isHidden, toggleFavorite, toggleHidden } = useArtistPrefs();
+  const artists = useMemo(() => eventArtists(event), [event]);
+
+  if (artists.length === 0) {
+    return (
+      <div className="mt-8 rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] p-5">
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">출연</p>
+        <p className="mt-3 text-base font-medium text-[var(--text)]">미정</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-8">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">출연 아티스트</p>
+        <p className="text-[11px] text-[var(--muted)]">
+          <span className="font-semibold text-[var(--accent)]">★ 관심</span> 등록 시 새 공연 알림 · 홈 필터,
+          <span className="ml-1 font-semibold text-[var(--text-secondary)]">숨김</span> 시 목록에서 가려집니다
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        {artists.map((artist) => {
+          const fav = isFavorite(artist);
+          const hide = isHidden(artist);
+          return (
+            <div
+              key={artist}
+              className={`flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 transition-colors ${
+                hide
+                  ? "border-[var(--line)] bg-[var(--panel-2)] opacity-60"
+                  : fav
+                    ? "border-[var(--accent-border)] bg-[var(--accent-soft)]"
+                    : "border-[var(--line)] bg-[var(--panel-2)]"
+              }`}
+            >
+              <span className={`min-w-0 flex-1 truncate text-sm font-semibold ${hide ? "text-[var(--muted)] line-through" : "text-[var(--text)]"}`}>
+                {artist}
+              </span>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => toggleFavorite(artist)}
+                  aria-pressed={fav}
+                  title={fav ? "관심 해제" : "관심 아티스트로 등록"}
+                  className={`flex h-9 items-center gap-1.5 rounded-full border px-3 text-xs font-bold transition-all active:scale-90 ${
+                    fav
+                      ? "border-[var(--accent-border)] bg-[var(--accent)] text-white"
+                      : "border-[var(--line)] bg-[var(--panel)] text-[var(--muted)] hover:border-[var(--accent-border)] hover:text-[var(--accent)]"
+                  }`}
+                >
+                  <svg width={13} height={13} viewBox="0 0 24 24" fill={fav ? "currentColor" : "none"} stroke="currentColor" strokeWidth={2} style={{ width: 13, height: 13 }}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.8 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z" />
+                  </svg>
+                  관심
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggleHidden(artist)}
+                  aria-pressed={hide}
+                  title={hide ? "숨김 해제" : "이 아티스트 공연 숨기기"}
+                  className={`flex h-9 w-9 items-center justify-center rounded-full border transition-all active:scale-90 ${
+                    hide
+                      ? "border-[var(--line-strong)] bg-[var(--panel-3)] text-[var(--text-secondary)]"
+                      : "border-[var(--line)] bg-[var(--panel)] text-[var(--muted)] hover:border-[var(--line-strong)] hover:text-[var(--text-secondary)]"
+                  }`}
+                >
+                  <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} style={{ width: 15, height: 15 }}>
+                    {hide ? (
+                      <>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9.9 4.2A9.1 9.1 0 0112 4c5 0 9 5.5 9 8a12 12 0 01-2 3M6.6 6.6C3.9 8.2 2 11 2 12c0 2.5 4 8 10 8a9 9 0 004-.9" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 3l18 18M9.9 9.9a3 3 0 004.2 4.2" />
+                      </>
+                    ) : (
+                      <>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
+                        <circle cx="12" cy="12" r="3" />
+                      </>
+                    )}
+                  </svg>
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -199,7 +317,7 @@ function TimetableViewer({ url, onClose }: { url: string; onClose: () => void })
       </div>
       <div className="custom-scrollbar flex-1 overflow-auto" style={{ touchAction: "pan-x pan-y pinch-zoom" }}>
         <img
-          src={url}
+          src={url.startsWith('http') ? `/api/proxy-image?url=${encodeURIComponent(url)}` : url}
           alt="공연 타임테이블"
           referrerPolicy="no-referrer"
           className="origin-top-left transition-transform duration-200"
@@ -267,7 +385,7 @@ function MyLineupBuilder({ event }: { event: EventItem }) {
                     className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-all duration-200 active:scale-90 ${
                       active
                         ? "border-[var(--accent-border)] bg-[var(--accent)] font-bold text-[#0a0a12]"
-                        : "border-[var(--line)] bg-white/5 text-[var(--text-secondary)] hover:border-[var(--accent-border)] hover:text-white"
+                        : "border-[var(--line)] bg-[var(--panel-2)] text-[var(--text-secondary)] hover:border-[var(--accent-border)] hover:text-[var(--text)]"
                     }`}
                   >
                     {active ? "✓ " : ""}{artist}

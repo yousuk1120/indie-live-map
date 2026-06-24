@@ -79,7 +79,7 @@ export default function BottomNav() {
               key={tab.href}
               href={tab.href}
               className={`relative flex flex-1 flex-col items-center justify-center gap-1 rounded-xl transition-all duration-300 active:scale-90 ${
-                active ? "text-[var(--accent)]" : "text-[var(--muted)] hover:text-white"
+                active ? "text-[var(--accent)]" : "text-[var(--muted)] hover:text-[var(--text)]"
               }`}
             >
               {active && (
