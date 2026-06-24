@@ -79,14 +79,27 @@ export async function getAdminMessaging() {
 }
 
 // Firebase Storage 버킷 (포스터 영구 저장용). 서비스계정 자격증명으로 동작 — 별도 토큰 불필요.
-export async function getAdminStorageBucket() {
+// 지정한 이름(없으면 환경변수)의 버킷 핸들을 반환합니다.
+export async function getAdminStorageBucket(bucketName?: string) {
   if (!(await ensureAdminApp())) return null;
   try {
     const { getStorage } = await import("firebase-admin/storage");
-    const bucketName = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || undefined;
-    return getStorage().bucket(bucketName);
+    const name = bucketName || process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || undefined;
+    return getStorage().bucket(name);
   } catch (error) {
     console.error("Firebase Admin Storage 초기화 실패:", error);
     return null;
   }
+}
+
+// 시도할 버킷 이름 후보 (신/구 기본 버킷 네이밍 모두 대응)
+export function candidateBucketNames(): string[] {
+  const env = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "";
+  const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "";
+  const names = [
+    env,
+    projectId ? `${projectId}.firebasestorage.app` : "",
+    projectId ? `${projectId}.appspot.com` : "",
+  ].filter(Boolean);
+  return Array.from(new Set(names));
 }
