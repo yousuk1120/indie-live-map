@@ -186,10 +186,12 @@ export default function GalleryView({
     syncLegacyIds(initialEvents);
   }, [initialEvents, syncLegacyIds]);
 
-  // 숨김 아티스트가 출연하는 공연은 목록 전체에서 제외 (홈·필터·카운트 모두 반영)
+  // 포스터 갤러리이므로 포스터 없는 공연은 제외 + 숨김 아티스트 공연 제외
+  // (홈·필터·카운트 모두 반영. 포스터는 수집 파이프라인에서 자동 채워집니다.)
   const upcomingEvents = useMemo(() => {
-    const prepared = prepareUpcomingEvents(initialEvents);
-    return hidden.length > 0 ? prepared.filter((e) => !eventHasHidden(e)) : prepared;
+    let list = prepareUpcomingEvents(initialEvents).filter((e) => !!(e.posterUrl && e.posterUrl.trim()));
+    if (hidden.length > 0) list = list.filter((e) => !eventHasHidden(e));
+    return list;
   }, [initialEvents, hidden.length, eventHasHidden]);
 
   const counts = useMemo(() => {

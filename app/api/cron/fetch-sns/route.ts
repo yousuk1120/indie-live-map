@@ -10,33 +10,32 @@ import {
   extractDateRange,
 } from "@/lib/event-merge";
 import { canonicalVenueName } from "@/lib/venues";
+import { persistPosterImage } from "@/lib/poster";
 
 // 빌드 타임에 정적 처리 금지 — 항상 런타임에서만 실행
 export const dynamic = "force-dynamic";
 // 계정 수가 늘어도 타임아웃 나지 않도록 (Fluid Compute)
 export const maxDuration = 300;
 
-// 인스타 CDN 이미지는 서명 URL이라 며칠 뒤 만료됩니다.
-// Vercel Blob에 복사해 영구 URL로 바꿉니다 (BLOB_READ_WRITE_TOKEN 미설정 시 원본 유지).
-async function persistPosterImage(url: string): Promise<string> {
-  if (!url || !process.env.BLOB_READ_WRITE_TOKEN) return url;
-
+// 인스타 단일 게시물에서 포스터 이미지 URL 추출 (Apify instagram-scraper)
+async function scrapePosterUrl(instagramUrl: string): Promise<string> {
+  if (!instagramUrl || !process.env.APIFY_API_TOKEN) return "";
   try {
-    const res = await fetch(url);
-    if (!res.ok) return url;
-
-    const data = Buffer.from(await res.arrayBuffer());
-    if (data.length === 0 || data.length > 8 * 1024 * 1024) return url;
-
-    const { put } = await import("@vercel/blob");
-    const stored = await put(`posters/${crypto.randomUUID()}.jpg`, data, {
-      access: "public",
-      contentType: res.headers.get("content-type") || "image/jpeg",
-    });
-    return stored.url;
+    const res = await fetch(
+      `https://api.apify.com/v2/acts/apify~instagram-scraper/run-sync-get-dataset-items?token=${process.env.APIFY_API_TOKEN}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ directUrls: [instagramUrl], resultsType: "details" }),
+      }
+    );
+    if (!res.ok) return "";
+    const data = await res.json();
+    if (!Array.isArray(data) || data.length === 0) return "";
+    return data[0].displayUrl || data[0].videoUrl || "";
   } catch (error) {
-    console.warn("[CRON] 포스터 영구화 실패 (원본 URL 유지):", error);
-    return url;
+    console.warn("[CRON] 단일 포스터 스크랩 실패:", error);
+    return "";
   }
 }
 
@@ -222,7 +221,10 @@ export async function GET(req: Request) {
             sourceUrl: parsedInfo.ticketUrl,
             instagramUrl: realPost.instaLink || "",
             price: parsedInfo.price,
-            posterUrl: await persistPosterImage(realPost.posterUrl || ""),
+            // 포스터가 비어 있으면 단일 게시물에서 추가 스크랩 후 영구화 (포스터 없는 공연 방지)
+            posterUrl: await persistPosterImage(
+              realPost.posterUrl || (await scrapePosterUrl(realPost.instaLink)) || ""
+            ),
             ticketOpenAt: parsedInfo.ticketOpenAt || "",
             dayLineups: parsedInfo.dayLineups.map((d) => ({
               date: normalizeDateString(d.date),
@@ -305,6 +307,32 @@ export async function GET(req: Request) {
       }
     }
 
+    // [백필] 포스터가 비어 있는 기존 공연을 자동으로 채웁니다 (실행당 최대 12건, 영구화).
+    //  인스타 서명 URL 만료 등으로 포스터가 사라진 공연을 점진적으로 복구합니다.
+    let backfilledPosters = 0;
+    try {
+      const missingSnap = await db.collection("events").get();
+      const targets = missingSnap.docs
+        .map((d: any) => ({ id: d.id, ...d.data() }))
+        .filter((ev: any) => !String(ev.posterUrl || "").trim() && String(ev.instagramUrl || "").trim())
+        .slice(0, 12);
+
+      for (const ev of targets) {
+        const scraped = await scrapePosterUrl(ev.instagramUrl);
+        const persisted = await persistPosterImage(scraped);
+        if (persisted) {
+          await db.collection("events").doc(ev.id).update({
+            posterUrl: persisted,
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+          backfilledPosters++;
+        }
+      }
+      if (backfilledPosters > 0) console.log(`[CRON] 포스터 백필 ${backfilledPosters}건 완료`);
+    } catch (backfillError) {
+      console.warn("[CRON] 포스터 백필 실패 (무시하고 계속):", backfillError);
+    }
+
     // raw_posts 무한 증식 방지: 60일 지난 원본 게시물 정리 (실행당 최대 200건)
     try {
       const cutoff = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
@@ -321,7 +349,7 @@ export async function GET(req: Request) {
       console.warn("[CRON] raw_posts 정리 실패 (무시하고 계속):", cleanupError);
     }
 
-    const summary = `${sourcesSnap.size}개 계정 순회 완료. 자동 발행 ${autoPublishCount}건, 병합 ${mergedCount}건, 승인 대기 ${newCandidateCount}건, 정보 부족 생략 ${skippedCount}건.`;
+    const summary = `${sourcesSnap.size}개 계정 순회 완료. 자동 발행 ${autoPublishCount}건, 병합 ${mergedCount}건, 승인 대기 ${newCandidateCount}건, 정보 부족 생략 ${skippedCount}건, 포스터 백필 ${backfilledPosters}건.`;
     console.log(`[CRON] ${summary}`);
 
     return NextResponse.json({

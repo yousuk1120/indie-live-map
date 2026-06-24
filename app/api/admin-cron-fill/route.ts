@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { collection, getDocs, updateDoc, doc } from "firebase/firestore";
 import { db } from "@/lib/firebase/firestore";
+import { persistPosterImage } from "@/lib/poster";
 
 export async function GET() {
   try {
@@ -32,9 +33,10 @@ export async function GET() {
         if (apifyRes.ok) {
           const data = await apifyRes.json();
           if (data && data.length > 0) {
-            const posterUrl = data[0].displayUrl || data[0].videoUrl;
-            if (posterUrl) {
-              // admin 모드가 아니면 클라이언트 SDK로 업데이트 (개발 환경이므로 허용 가능)
+            const rawPosterUrl = data[0].displayUrl || data[0].videoUrl;
+            if (rawPosterUrl) {
+              // 인스타 서명 URL 만료 방지: Blob에 영구화 후 저장
+              const posterUrl = await persistPosterImage(rawPosterUrl);
               await updateDoc(doc(db, "events", ev.id), { posterUrl });
               successCount++;
             }

@@ -1,6 +1,7 @@
 "use client";
 
-// 티켓북 탭: 저장한 공연 + 과거 관람 기록 아카이브 (기기 로컬 저장, 로그인 불필요)
+// 티켓북 탭: 저장한 공연 + 과거 관람 기록 아카이브
+// 둘러보기는 로그인 없이 가능하지만, 저장/관람기록 확인은 Google 로그인 시에만 노출합니다.
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -22,6 +23,11 @@ export default function TicketbookView() {
       setLinking(false);
     }
   };
+
+  // 로그인(Google 연결) 전에는 저장/관람기록을 보여주지 않고 로그인 안내만 표시
+  if (syncState !== "linked") {
+    return <TicketbookLoginGate onLink={handleLink} linking={linking} />;
+  }
 
   // 통계
   const stats = useMemo(() => {
@@ -161,6 +167,59 @@ export default function TicketbookView() {
         </section>
       )}
     </>
+  );
+}
+
+/* ─── 로그인 게이트 (저장/관람기록은 로그인 후에만) ─── */
+function TicketbookLoginGate({ onLink, linking }: { onLink: () => void; linking: boolean }) {
+  const router = useRouter();
+  return (
+    <section className="animate-fade-in">
+      <div className="rounded-3xl border border-[var(--line)] bg-[var(--panel)] p-8 text-center md:p-10">
+        <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--accent-soft)]">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="text-[var(--accent)]">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 7a2 2 0 012-2h12a2 2 0 012 2v3a2 2 0 100 4v3a2 2 0 01-2 2H6a2 2 0 01-2-2v-3a2 2 0 100-4V7z" />
+            <path strokeLinecap="round" d="M13 5v2.5M13 11v2M13 16.5V19" strokeDasharray="0.1 3" />
+          </svg>
+        </div>
+
+        <h2 className="text-lg font-bold text-[var(--text)]">로그인하고 내 티켓북 보기</h2>
+        <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-[var(--muted)]">
+          저장한 공연과 관람 기록은 <span className="font-semibold text-[var(--text-secondary)]">Google 로그인</span> 후에 확인할 수 있어요.
+          기기를 바꿔도 기록이 그대로 따라옵니다.
+        </p>
+
+        <button
+          type="button"
+          onClick={onLink}
+          disabled={linking}
+          className="mx-auto mt-6 flex h-12 w-full max-w-xs items-center justify-center gap-2 rounded-2xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-deep)] px-5 text-sm font-bold text-white transition-all active:scale-[0.98] disabled:opacity-50"
+        >
+          {linking ? (
+            "로그인 중..."
+          ) : (
+            <>
+              <svg width="18" height="18" viewBox="0 0 24 24" style={{ width: 18, height: 18 }}>
+                <path fill="#fff" d="M21.35 11.1H12v2.92h5.35c-.23 1.5-1.6 4.4-5.35 4.4-3.22 0-5.85-2.66-5.85-5.94S8.78 6.54 12 6.54c1.83 0 3.06.78 3.76 1.45l2.56-2.47C16.7 3.92 14.57 3 12 3 6.92 3 2.8 7.12 2.8 12.2S6.92 21.4 12 21.4c5.84 0 9.7-4.1 9.7-9.88 0-.66-.07-1.16-.16-1.42z" />
+              </svg>
+              Google로 로그인
+            </>
+          )}
+        </button>
+
+        <p className="mt-4 text-[11px] text-[var(--faint)]">
+          로그인 없이도 공연 둘러보기·검색은 자유롭게 이용할 수 있어요.
+        </p>
+
+        <button
+          type="button"
+          onClick={() => router.push("/")}
+          className="mt-5 text-xs font-semibold text-[var(--muted)] underline underline-offset-4 transition-colors hover:text-[var(--text)]"
+        >
+          공연 둘러보기 →
+        </button>
+      </div>
+    </section>
   );
 }
 

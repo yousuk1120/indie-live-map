@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { verifyAdminRequest } from "@/lib/api-auth";
+import { persistPosterImage } from "@/lib/poster";
 
 export async function POST(req: Request) {
   // 관리자 전용 무인증 호출 차단
@@ -48,11 +49,14 @@ export async function POST(req: Request) {
     }
 
     const postData = data[0];
-    const posterUrl = postData.displayUrl || postData.videoUrl || "";
+    const rawPosterUrl = postData.displayUrl || postData.videoUrl || "";
 
-    if (!posterUrl) {
+    if (!rawPosterUrl) {
       return NextResponse.json({ success: false, error: "게시물에서 이미지 URL을 찾을 수 없습니다." });
     }
+
+    // 인스타 서명 URL은 만료되므로 Vercel Blob에 영구화 (토큰 없으면 원본 유지)
+    const posterUrl = await persistPosterImage(rawPosterUrl);
 
     return NextResponse.json({ success: true, posterUrl });
   } catch (error: any) {
