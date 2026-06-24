@@ -9,6 +9,7 @@ import { SettingsProvider } from "./contexts/settings-context";
 export const metadata: Metadata = {
   title: "라이브클럽맵 | 인디 공연 일정",
   description: "라이브클럽맵 (Live Club Map) — 인디씬 라이브 공연 일정을 목록·지도·달력으로 한눈에.",
+  manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
