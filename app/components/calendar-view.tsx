@@ -10,6 +10,7 @@ import {
   getEventDates,
   sortEventsForDay,
 } from "@/lib/events";
+import { useTicketbook } from "@/lib/ticketbook";
 import { ScheduleRow } from "./event-cards";
 
 type CalendarCell = {
@@ -27,6 +28,7 @@ export default function CalendarView({
 }) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState("");
+  const { isSaved } = useTicketbook();
 
   const sortedEvents = useMemo(() => prepareUpcomingEvents(initialEvents), [initialEvents]);
 
@@ -61,11 +63,12 @@ export default function CalendarView({
 
   const selectedDateEvents = useMemo(() => {
     if (!selectedDate) return [] as EventItem[];
-    // 페스티벌 최상단 고정 정렬
-    return sortEventsForDay(
+    // 페스티벌 최상단 고정 정렬 후, 별표(저장)한 공연을 맨 위로 끌어올림 (안정 정렬)
+    const sorted = sortEventsForDay(
       sortedEvents.filter((event) => getEventDates(event).includes(selectedDate))
     );
-  }, [selectedDate, sortedEvents]);
+    return [...sorted].sort((a, b) => (isSaved(b.id) ? 1 : 0) - (isSaved(a.id) ? 1 : 0));
+  }, [selectedDate, sortedEvents, isSaved]);
 
   if (loadError) {
     return (

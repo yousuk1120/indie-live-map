@@ -228,7 +228,7 @@ export default function GalleryView({
   return (
     <>
       {/* 검색 */}
-      <section className="mb-4 animate-fade-in" style={{ animationDelay: "0.05s" }}>
+      <section className="mb-5 mt-2 animate-fade-in md:mt-0" style={{ animationDelay: "0.05s" }}>
         <div className="relative">
           <svg
             width={16} height={16} style={{ width: 16, height: 16 }}
@@ -247,7 +247,7 @@ export default function GalleryView({
       </section>
 
       {/* 필터 칩 */}
-      <section className="custom-scrollbar mb-6 -mx-4 flex gap-2 overflow-x-auto px-4 pb-1 animate-fade-in md:mx-0 md:px-0" style={{ animationDelay: "0.08s" }}>
+      <section className="custom-scrollbar mb-7 -mx-4 flex gap-2 overflow-x-auto px-4 pb-1.5 pt-0.5 animate-fade-in md:mx-0 md:px-0" style={{ animationDelay: "0.08s" }}>
         {FILTERS.map(({ key, label }) => (
           <button
             key={key}
