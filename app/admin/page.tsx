@@ -16,7 +16,7 @@ import {
   normalizeDateString,
   extractDateRange,
 } from "@/lib/event-merge";
-import { canonicalVenueName } from "@/lib/venues";
+import { canonicalVenueName, venueForAccount } from "@/lib/venues";
 import { isAdminEmail, ADMIN_EMAILS } from "@/lib/admin-config";
 
 type EventItem = {
@@ -160,6 +160,7 @@ type SourceAccount = {
 type CandidateEvent = {
   id: string;
   rawPostId?: string;
+  sourceAccountName?: string;
   instaLink: string;
   caption: string;
   posterUrl: string;
@@ -1155,7 +1156,8 @@ function CandidatesTab() {
               date: canRange.start || normalizeDateString(can.parsedDate),
               endDate: normalizeDateString(can.parsedEndDate) || canRange.end,
               time: can.parsedTime || "",
-              venueName: canonicalVenueName(can.parsedVenue),
+              // 장소 누락 시 공연장 계정이면 그 공연장으로 보정
+              venueName: canonicalVenueName(can.parsedVenue) || venueForAccount(can.sourceAccountName),
               artistNames: can.parsedArtists || "",
               sourceUrl: can.parsedTicket || "",
               instagramUrl: can.instaLink || "",
@@ -1172,6 +1174,11 @@ function CandidatesTab() {
               Object.assign(matched, merged);
               await deleteDoc(doc(db, "candidate_events", can.id));
               mergedCount++;
+              continue;
+            }
+
+            // 장소를 끝내 못 찾으면 자동 발행하지 않고 승인 큐에 남겨 재검토 (공연장 미정 발행 방지)
+            if (!(incoming.venueName || "").trim()) {
               continue;
             }
 

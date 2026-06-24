@@ -96,6 +96,14 @@ export function buildEventExtractionPrompt(postsText: string, accountName?: stri
 - "8월 14일~16일"처럼 여러 날 진행되면 date에 시작일, endDate에 종료일을 넣으세요.
 - 하루짜리 공연이면 endDate는 "" 입니다.
 - 본문에 날짜별 라인업이 구분되어 있으면 dayLineups에 날짜별로 넣으세요. 구분이 없으면 빈 배열 [].
+- 같은 아티스트를 여러 날에 중복해서 넣지 마세요. 각 아티스트는 실제 출연하는 그 날짜에만.
+
+[포스터/게시물 선택 규칙]
+- 같은 공연에 대한 게시물이 여러 개면, **가격표·예매 안내만 있는 이미지보다 메인 포스터나 라인업이 담긴 게시물**을 chosenIndex로 고르세요.
+
+[아티스트(artistNames) 규칙]
+- 반드시 **실제 출연 팀 이름**을 쉼표로 나열하세요.
+- "70 ARTISTS", "라인업 곧 공개", "20여 팀" 같은 **팀 수·설명 문구는 artistNames에 넣지 마세요**(이런 경우 artistNames는 본문에 적힌 실제 팀명만, 없으면 "").
 
 [게시물 목록]
 ${postsText}

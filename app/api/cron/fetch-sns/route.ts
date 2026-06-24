@@ -9,7 +9,7 @@ import {
   normalizeDateString,
   extractDateRange,
 } from "@/lib/event-merge";
-import { canonicalVenueName } from "@/lib/venues";
+import { canonicalVenueName, venueForAccount } from "@/lib/venues";
 import { persistPosterImage } from "@/lib/poster";
 import { isKoreanEvent } from "@/lib/events";
 
@@ -222,8 +222,11 @@ export async function GET(req: Request) {
             date: range.start || normalizeDateString(parsedInfo.date),
             endDate: normalizeDateString(parsedInfo.endDate) || range.end,
             time: parsedInfo.time,
-            // 장소 정규화: 별칭 통일 + 쓰레기 값("지하" 등) 제거
-            venueName: canonicalVenueName(parsedInfo.venueName),
+            // 장소 정규화: 별칭 통일 + 쓰레기 값("지하" 등) 제거.
+            // 장소가 비고 공연장 계정이면 그 공연장으로 채움 (공연장 글은 대개 자기 공연장 공연)
+            venueName:
+              canonicalVenueName(parsedInfo.venueName) ||
+              (accountData.category === "공연장" ? venueForAccount(accountName) : ""),
             artistNames: parsedInfo.artistNames,
             sourceUrl: parsedInfo.ticketUrl,
             instagramUrl: realPost.instaLink || "",

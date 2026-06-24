@@ -47,6 +47,23 @@ const ALIAS_LOOKUP: Map<string, string> = (() => {
 const GARBAGE_VENUE_PATTERN =
   /^(지하|지상|반지하|b1|b2|1층|2층|3층|지하\s*1층|지하\s*2층|루프탑|rooftop|옥상|야외|실내|홀|공연장|라이브홀|클럽|소극장|미정|추후\s*공지|추후공지|tba|tbd|online|온라인|장소|venue|입구|주차장)$/i;
 
+// 공연장 인스타 계정 → 대표 공연장명. 공연장 계정이 올린 글에 장소가 누락되면
+// 대부분 그 공연장에서 열리므로 이 매핑으로 장소를 채웁니다.
+const ACCOUNT_VENUE_MAP: Record<string, string> = {
+  rollinghall: "롤링홀",
+  hongdaeff: "클럽 FF",
+  prismhall: "프리즘홀",
+  ssmadang_live: "KT&G 상상마당",
+  "channel1969.seoul": "채널1969",
+  jebidabang: "제비다방",
+  unplugged_stage: "언플러그드",
+};
+
+export function venueForAccount(handle?: string): string {
+  const h = String(handle || "").trim().toLowerCase().replace(/^@/, "");
+  return ACCOUNT_VENUE_MAP[h] || "";
+}
+
 // 장소명이 유효하지 않으면 true (단독 층수/위치 표현, 너무 짧거나 긴 값)
 export function isGarbageVenue(raw?: string): boolean {
   const value = (raw || "").trim();

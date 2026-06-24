@@ -132,24 +132,34 @@ export function isKoreanEvent(event: EventItem) {
 
 export function isFestivalEvent(event: EventItem) {
   const title = toText(event.title).toLowerCase();
-  if (/페스티벌|festival|페스타|festa|펜타포트|pentaport|캠프|camp|dmz|디엠지/i.test(title)) {
+  const titleHasFestivalWord = /페스티벌|festival|페스타|festa|펜타포트|pentaport|캠프|camp|dmz|디엠지/i.test(title);
+
+  // 라인업 규모 (artistNames + 날짜별 라인업 합산 — 고유 팀 수)
+  const allArtists = [
+    ...(toText(event.artistNames).split(/[,/|·&]+/)),
+    ...((event.dayLineups || []).flatMap((d) => toText(d.artists).split(/[,/|·&]+/))),
+  ]
+    .map((a) => a.trim().toLowerCase())
+    .filter((a) => a.length > 0);
+  const artistsCount = new Set(allArtists).size;
+
+  // 멀티데이(여러 날) 여부
+  const start = normalizeDate(event.date);
+  const end = normalizeDate(event.endDate);
+  const isMultiDay = !!start && !!end && end > start;
+
+  // 이름에 '페스티벌' 등이 있어도 라인업이 빈약하면(멀티데이도 아님) 일반 공연으로 봅니다.
+  // ("인디 페스티벌"처럼 이름만 페스티벌인 소규모 공연 제외)
+  if (titleHasFestivalWord && (isMultiDay || artistsCount >= 6)) {
     return true;
   }
 
-  const artistsStr = toText(event.artistNames);
+  // 이름에 페스티벌 단어가 없어도, 대규모 라인업 + 고가 티켓이면 페스티벌
   const priceStr = toText(event.price);
-  if (artistsStr && priceStr) {
-    const artistsCount = artistsStr.split(/[,/|·&]+/).map(a => a.trim()).filter(a => a.length > 0).length;
-
-    const numbers = priceStr.match(/\d{1,3}(,\d{3})+|\d{4,}/g);
-    let maxPrice = 0;
-    if (numbers) {
-      maxPrice = Math.max(...numbers.map(m => parseInt(m.replace(/,/g, ""), 10)));
-    }
-
-    if (artistsCount >= 10 && maxPrice >= 70000) {
-      return true;
-    }
+  const numbers = priceStr.match(/\d{1,3}(,\d{3})+|\d{4,}/g);
+  const maxPrice = numbers ? Math.max(...numbers.map((m) => parseInt(m.replace(/,/g, ""), 10))) : 0;
+  if (artistsCount >= 10 && maxPrice >= 70000) {
+    return true;
   }
 
   return false;

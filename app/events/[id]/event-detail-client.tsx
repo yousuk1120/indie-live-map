@@ -3,7 +3,7 @@
 // 공연 상세 — 인터랙티브 부분 (저장, 타임테이블 뷰어, 나만의 라인업)
 // 데이터는 서버 컴포넌트(page.tsx)에서 받아옵니다.
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -132,11 +132,12 @@ export default function EventDetailClient({ event }: { event: EventItem }) {
               <InfoCard label="티켓" value={priceLines.join("\n") || "정보 없음"} preserveLineBreak />
             </div>
 
-          {/* 출연 아티스트 — 관심/숨김 등록 */}
-          <ArtistPrefsSection event={event} />
-
-          {/* 날짜별 라인업 + 나만의 라인업 선택 (멀티데이 페스티벌) */}
-          {dayLineups.length > 0 && <MyLineupBuilder event={event} />}
+          {/* 페스티벌(날짜별 라인업)은 Day by Day로, 일반 공연은 관심/숨김 등록 UI로 */}
+          {dayLineups.length > 0 ? (
+            <DayLineupView event={event} />
+          ) : (
+            <ArtistPrefsSection event={event} />
+          )}
 
           <div className="mt-8 flex flex-wrap gap-2">
             <button
@@ -328,70 +329,43 @@ function TimetableViewer({ url, onClose }: { url: string; onClose: () => void })
   );
 }
 
-/* ─── 나만의 라인업 빌더 (날짜별 아티스트 선택, 기기 로컬 저장) ─── */
-function MyLineupBuilder({ event }: { event: EventItem }) {
-  const storageKey = `indieLive.mylineup.${event.id}`;
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+/* ─── 날짜별 라인업 (읽기 전용) — 같은 아티스트가 여러 날 중복되면 처음 날에만 표시 ─── */
+function DayLineupView({ event }: { event: EventItem }) {
+  const cleaned = useMemo(() => {
+    const seen = new Set<string>();
+    return (event.dayLineups || [])
+      .map((day) => {
+        const artists = splitArtists(day.artists).filter((a) => {
+          const key = a.toLowerCase().replace(/[\s\-_.,!?'"()\[\]]/g, "");
+          if (!key || seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        return { date: day.date, artists };
+      })
+      .filter((d) => d.artists.length > 0);
+  }, [event.dayLineups]);
 
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(storageKey);
-      if (raw) setSelected(new Set(JSON.parse(raw)));
-    } catch {
-      // ignore
-    }
-  }, [storageKey]);
-
-  const toggle = (key: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      try {
-        localStorage.setItem(storageKey, JSON.stringify(Array.from(next)));
-      } catch {
-        // ignore
-      }
-      return next;
-    });
-  };
-
-  const dayLineups = event.dayLineups || [];
+  if (cleaned.length === 0) return null;
 
   return (
     <div className="mt-8">
-      <div className="mb-3 flex items-center justify-between">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--accent)]">
-          Day by Day Lineup
-        </p>
-        <p className="text-[11px] text-[var(--muted)]">
-          아티스트를 눌러 <span className="font-semibold text-[var(--accent)]">나만의 라인업</span>을 만들어 보세요
-          {selected.size > 0 && <span className="ml-1 font-bold text-[var(--accent)]">({selected.size}팀 선택)</span>}
-        </p>
-      </div>
+      <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--accent)]">
+        Day by Day Lineup
+      </p>
       <div className="space-y-2">
-        {dayLineups.map((day) => (
+        {cleaned.map((day) => (
           <div key={day.date} className="rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] p-4">
             <p className="mb-2.5 text-sm font-bold tabular-nums text-[var(--accent)]">{formatDayLabel(day.date)}</p>
             <div className="flex flex-wrap gap-1.5">
-              {splitArtists(day.artists).map((artist) => {
-                const key = `${day.date}__${artist}`;
-                const active = selected.has(key);
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => toggle(key)}
-                    className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-all duration-200 active:scale-90 ${
-                      active
-                        ? "border-[var(--accent-border)] bg-[var(--accent)] font-bold text-[#0a0a12]"
-                        : "border-[var(--line)] bg-[var(--panel-2)] text-[var(--text-secondary)] hover:border-[var(--accent-border)] hover:text-[var(--text)]"
-                    }`}
-                  >
-                    {active ? "✓ " : ""}{artist}
-                  </button>
-                );
-              })}
+              {day.artists.map((artist) => (
+                <span
+                  key={artist}
+                  className="rounded-full border border-[var(--line)] bg-[var(--panel)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)]"
+                >
+                  {artist}
+                </span>
+              ))}
             </div>
           </div>
         ))}

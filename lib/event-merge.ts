@@ -188,13 +188,11 @@ export function isSameConcert(a: ConcertRecord, b: ConcertRecord): boolean {
     venueA.startsWith(venueB) || venueB.startsWith(venueA);
 
   const sameTitle = areSimilarTitles(a.title || "", b.title || "");
-  if (sameTitle && venueCompatible) return true;
-
-  // 페스티벌은 하나의 행사 정체성을 가짐 — 멀티데이(여러 날)거나 동의어 그룹에 걸리는
-  // 같은 이름이면, 장소 표기가 달라도(아티스트 계정 vs 페스티벌 계정 등) 동일 행사로 봅니다.
-  const aMulti = (() => { const r = getDateRange(a); return !!r.start && r.end > r.start; })();
-  const bMulti = (() => { const r = getDateRange(b); return !!r.start && r.end > r.start; })();
-  if (sameTitle && (aMulti || bMulti)) return true;
+  // 제목이 충분히 유사하고 날짜가 겹치면 같은 공연으로 봅니다.
+  //  - 장소가 같거나 비었으면 당연히 동일 공연
+  //  - 장소가 달라도(라이브클럽데이처럼 한 행사가 여러 공연장에서 동시 진행 / 페스티벌
+  //    멀티데이 / 아티스트·기획사 계정 vs 공연장 계정) 동일 행사로 묶고, 병합 시 공연장을 합칩니다.
+  if (sameTitle) return true;
 
   const overlap = lineupOverlapRatio(a.artistNames, b.artistNames);
   if (venueEqual && overlap >= 0.5) return true;
@@ -241,6 +239,25 @@ export function mergeArtistNames(a?: string, b?: string): string {
   return merged.join(", ");
 }
 
+// 공연장 병합 — 같은 행사가 여러 공연장에서 열리면 "A / B"로 합칩니다 (별칭 기준 중복 제거).
+export function mergeVenueNames(a?: string, b?: string): string {
+  const split = (v?: string) =>
+    String(v || "")
+      .split(/\s*\/\s*/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const v of [...split(a), ...split(b)]) {
+    const key = normalizeVenueKey(v);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(v);
+  }
+  return out.join(" / ");
+}
+
 // 날짜별 라인업 병합: 같은 날짜는 아티스트 합집합
 export function mergeDayLineups(a?: DayLineup[], b?: DayLineup[]): DayLineup[] {
   const byDate = new Map<string, string>();
@@ -278,18 +295,27 @@ export function mergeConcerts(existing: ConcertRecord, incoming: ConcertRecord):
   const priceA = (existing.price || "").trim();
   const priceB = (incoming.price || "").trim();
 
+  // 포스터 선택: 새로 들어온 정보의 라인업이 더 풍부하면(가격 포스터 → 라인업 포스터 공개 등)
+  // 새 포스터로 교체합니다. 그 외에는 기존 포스터 유지.
+  const lineupScore = (r: ConcertRecord) =>
+    (r.dayLineups?.length || 0) * 3 + splitArtists(r.artistNames).length;
+  const posterUrl =
+    incoming.posterUrl && lineupScore(incoming) > lineupScore(existing)
+      ? incoming.posterUrl
+      : pickNonEmpty(existing.posterUrl, incoming.posterUrl);
+
   return {
     title: preferKoreanText(existing.title, incoming.title),
     date: start,
     endDate: end && end !== start ? end : "",
     time: pickNonEmpty(existing.time, incoming.time),
-    venueName: canonicalVenueName(preferKoreanText(existing.venueName, incoming.venueName)) ||
-      preferKoreanText(existing.venueName, incoming.venueName),
+    // 여러 공연장에서 열리는 행사는 공연장을 합쳐 표기 (라이브클럽데이 등)
+    venueName: mergeVenueNames(existing.venueName, incoming.venueName),
     artistNames,
     sourceUrl: pickNonEmpty(existing.sourceUrl, incoming.sourceUrl),
     instagramUrl: pickNonEmpty(incoming.instagramUrl, existing.instagramUrl),
     price: priceB.length > priceA.length ? priceB : priceA,
-    posterUrl: pickNonEmpty(existing.posterUrl, incoming.posterUrl),
+    posterUrl,
     timetableImageUrl: pickNonEmpty(existing.timetableImageUrl, incoming.timetableImageUrl),
     ticketOpenAt: pickNonEmpty(existing.ticketOpenAt, incoming.ticketOpenAt),
     dayLineups,
