@@ -77,3 +77,16 @@ export async function getAdminMessaging() {
     return null;
   }
 }
+
+// Firebase Storage 버킷 (포스터 영구 저장용). 서비스계정 자격증명으로 동작 — 별도 토큰 불필요.
+export async function getAdminStorageBucket() {
+  if (!(await ensureAdminApp())) return null;
+  try {
+    const { getStorage } = await import("firebase-admin/storage");
+    const bucketName = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || undefined;
+    return getStorage().bucket(bucketName);
+  } catch (error) {
+    console.error("Firebase Admin Storage 초기화 실패:", error);
+    return null;
+  }
+}

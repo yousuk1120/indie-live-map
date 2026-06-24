@@ -37,15 +37,18 @@ async function runPosterBackfill(db: any, FieldValue: any, limit: number) {
     const scraped = await scrapePosterUrl(ev.instagramUrl);
     if (scraped) scrapedOk++;
     const persisted = await persistPosterImage(scraped);
-    // Blob 영구 URL로 바뀐 경우에만 갱신 (인스타→인스타면 의미 없으니 스킵)
-    if (persisted && persisted.includes(".blob.vercel-storage.com")) {
+    // 영구 저장(Firebase Storage) URL로 바뀐 경우에만 갱신 (인스타→인스타면 의미 없으니 스킵)
+    if (persisted && /firebasestorage\.googleapis\.com|storage\.googleapis\.com/.test(persisted)) {
       await db.collection("events").doc(ev.id).update({ posterUrl: persisted, updatedAt: FieldValue.serverTimestamp() });
       filled++;
     }
   }
-  const blobEnv = !!(process.env.BLOB_READ_WRITE_TOKEN ? "rw" : process.env.BLOB_STORE_ID ? "store" : "");
-  const blobMode = process.env.BLOB_READ_WRITE_TOKEN ? "rw-token" : process.env.BLOB_STORE_ID ? "store-id(oidc)" : "none";
-  return { filled, scraped: scrapedOk, targets: targets.length, blobEnv, blobMode };
+  return {
+    filled,
+    scraped: scrapedOk,
+    targets: targets.length,
+    storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "(미설정)",
+  };
 }
 
 // 인스타 단일 게시물에서 포스터 이미지 URL 추출 (Apify instagram-scraper)
