@@ -10,7 +10,7 @@ import {
   extractDateRange,
 } from "@/lib/event-merge";
 import { canonicalVenueName, venueForAccount } from "@/lib/venues";
-import { persistPosterImage } from "@/lib/poster";
+import { persistPosterImage, getLastPersistError } from "@/lib/poster";
 import { isKoreanEvent } from "@/lib/events";
 
 // 빌드 타임에 정적 처리 금지 — 항상 런타임에서만 실행
@@ -48,6 +48,7 @@ async function runPosterBackfill(db: any, FieldValue: any, limit: number) {
     scraped: scrapedOk,
     targets: targets.length,
     storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "(미설정)",
+    lastError: getLastPersistError(),
   };
 }
 

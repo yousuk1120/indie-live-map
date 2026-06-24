@@ -4,6 +4,11 @@
 // Firebase Storage(기존 서비스계정 자격증명으로 동작 — 별도 토큰 불필요)에 복사해
 // 영구 다운로드 URL로 바꿉니다. 설정/업로드 실패 시 원본 URL을 그대로 반환합니다.
 
+let _lastError = "";
+export function getLastPersistError(): string {
+  return _lastError;
+}
+
 function isPersistedUrl(url: string): boolean {
   return (
     url.includes("firebasestorage.googleapis.com") ||
@@ -44,6 +49,7 @@ export async function persistPosterImage(url: string): Promise<string> {
       objectPath
     )}?alt=media&token=${downloadToken}`;
   } catch (error) {
+    _lastError = String((error as { message?: string })?.message || error).slice(0, 300);
     console.warn("[poster] Firebase Storage 영구화 실패 (원본 URL 유지):", error);
     return url;
   }
