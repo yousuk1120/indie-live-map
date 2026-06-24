@@ -52,12 +52,13 @@ export async function persistPosterImage(url: string): Promise<string> {
       }
     }
 
-    // 2순위: Vercel Blob (BLOB_READ_WRITE_TOKEN 정적 토큰이 있을 때).
+    // 2순위: Vercel Blob (BLOB_READ_WRITE_TOKEN 정적 토큰). 스토어가 비공개이므로
+    // access: 'private'로 저장하고, 표시할 때는 /api/proxy-image가 토큰으로 서빙합니다.
     if (process.env.BLOB_READ_WRITE_TOKEN) {
       try {
         const { put } = await import("@vercel/blob");
         const stored = await put(`posters/${crypto.randomUUID()}.jpg`, data, {
-          access: "public",
+          access: "private",
           contentType,
           token: process.env.BLOB_READ_WRITE_TOKEN,
         });

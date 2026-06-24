@@ -37,8 +37,8 @@ async function runPosterBackfill(db: any, FieldValue: any, limit: number) {
     const scraped = await scrapePosterUrl(ev.instagramUrl);
     if (scraped) scrapedOk++;
     const persisted = await persistPosterImage(scraped);
-    // 영구 저장(Firebase Storage) URL로 바뀐 경우에만 갱신 (인스타→인스타면 의미 없으니 스킵)
-    if (persisted && /firebasestorage\.googleapis\.com|storage\.googleapis\.com/.test(persisted)) {
+    // 영구 저장(Firebase Storage / Vercel Blob) URL로 바뀐 경우에만 갱신 (인스타→인스타면 스킵)
+    if (persisted && /firebasestorage\.googleapis\.com|storage\.googleapis\.com|blob\.vercel-storage\.com/.test(persisted)) {
       await db.collection("events").doc(ev.id).update({ posterUrl: persisted, updatedAt: FieldValue.serverTimestamp() });
       filled++;
     }

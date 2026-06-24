@@ -8,6 +8,29 @@ export async function GET(request: Request) {
     return new NextResponse("Missing url parameter", { status: 400 });
   }
 
+  // 비공개 Vercel Blob 포스터: 토큰으로 서버에서 읽어 스트리밍 (브라우저는 직접 접근 불가)
+  if (url.includes("blob.vercel-storage.com") && process.env.BLOB_READ_WRITE_TOKEN) {
+    try {
+      const { get } = await import("@vercel/blob");
+      const pathname = new URL(url).pathname.replace(/^\//, "");
+      const result = await get(pathname, {
+        access: "private",
+        token: process.env.BLOB_READ_WRITE_TOKEN,
+      });
+      if (result && result.statusCode === 200 && result.stream) {
+        return new NextResponse(result.stream, {
+          headers: {
+            "Content-Type": result.blob.contentType || "image/jpeg",
+            "Cache-Control": "public, max-age=31536000, immutable",
+          },
+        });
+      }
+    } catch (error) {
+      console.error("Private blob 서빙 실패:", error);
+      // 아래 일반 fetch로 폴백 시도
+    }
+  }
+
   try {
     const response = await fetch(url, {
       headers: {
