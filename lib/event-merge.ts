@@ -170,6 +170,21 @@ export function dateRangesOverlap(a: Pick<ConcertRecord, "date" | "endDate">, b:
   return ra.start <= rb.end && rb.start <= ra.end;
 }
 
+// 두 날짜 범위 사이의 간격(일 수). 겹치면 0, 날짜 정보가 없으면 Infinity.
+// 멀티데이 페스티벌이 "9/5", "9/6"처럼 날짜별로 따로 수집된 경우를 잡기 위해 사용합니다.
+export function dateRangeGapDays(
+  a: Pick<ConcertRecord, "date" | "endDate">,
+  b: Pick<ConcertRecord, "date" | "endDate">
+): number {
+  const ra = getDateRange(a);
+  const rb = getDateRange(b);
+  if (!ra.start || !rb.start) return Number.POSITIVE_INFINITY;
+  if (ra.start <= rb.end && rb.start <= ra.end) return 0;
+  const [earlierEnd, laterStart] = ra.end < rb.start ? [ra.end, rb.start] : [rb.end, ra.start];
+  const ms = new Date(`${laterStart}T00:00:00`).getTime() - new Date(`${earlierEnd}T00:00:00`).getTime();
+  return Math.round(ms / 86_400_000);
+}
+
 // ─── 같은 공연 판정 ───
 //
 // 날짜가 겹치는 두 레코드가 아래 중 하나를 만족하면 같은 공연으로 봅니다:
@@ -177,8 +192,6 @@ export function dateRangesOverlap(a: Pick<ConcertRecord, "date" | "endDate">, b:
 //  b) 장소가 동일(비어 있지 않음)하고 라인업이 절반 이상 겹침
 //  c) 라인업이 70% 이상 겹침 (양쪽 모두 2팀 이상) — 제목을 다르게 뽑아온 같은 공연 케이스
 export function isSameConcert(a: ConcertRecord, b: ConcertRecord): boolean {
-  if (!dateRangesOverlap(a, b)) return false;
-
   const venueA = normalizeVenueKey(a.venueName);
   const venueB = normalizeVenueKey(b.venueName);
   const venueEqual = !!venueA && venueA === venueB;
@@ -188,18 +201,24 @@ export function isSameConcert(a: ConcertRecord, b: ConcertRecord): boolean {
     venueA.startsWith(venueB) || venueB.startsWith(venueA);
 
   const sameTitle = areSimilarTitles(a.title || "", b.title || "");
-  // 제목이 충분히 유사하고 날짜가 겹치면 같은 공연으로 봅니다.
-  //  - 장소가 같거나 비었으면 당연히 동일 공연
-  //  - 장소가 달라도(라이브클럽데이처럼 한 행사가 여러 공연장에서 동시 진행 / 페스티벌
-  //    멀티데이 / 아티스트·기획사 계정 vs 공연장 계정) 동일 행사로 묶고, 병합 시 공연장을 합칩니다.
-  if (sameTitle) return true;
+  const overlap = dateRangesOverlap(a, b);
 
-  const overlap = lineupOverlapRatio(a.artistNames, b.artistNames);
-  if (venueEqual && overlap >= 0.5) return true;
+  // 제목이 충분히 유사하면 같은 공연으로 봅니다.
+  //  - 날짜가 겹치면(같은/멀티데이 공연) 동일 행사. 장소가 달라도(라이브클럽데이처럼
+  //    한 행사가 여러 공연장에서 동시 진행 / 아티스트·기획사 계정 vs 공연장 계정) 묶습니다.
+  //  - 날짜가 겹치지 않아도, 장소가 호환되고 날짜가 인접(±3일)하면 멀티데이 페스티벌이
+  //    "9/5", "9/6"처럼 날짜별로 따로 수집된 경우로 보고 하나의 기간으로 병합합니다.
+  if (sameTitle && (overlap || (venueCompatible && dateRangeGapDays(a, b) <= 3))) return true;
+
+  // 아래 라인업 기반 판정은 날짜가 실제로 겹칠 때만 적용합니다.
+  if (!overlap) return false;
+
+  const lineupOverlap = lineupOverlapRatio(a.artistNames, b.artistNames);
+  if (venueEqual && lineupOverlap >= 0.5) return true;
 
   const countA = splitArtists(a.artistNames).length;
   const countB = splitArtists(b.artistNames).length;
-  if (overlap >= 0.7 && countA >= 2 && countB >= 2 && venueCompatible) return true;
+  if (lineupOverlap >= 0.7 && countA >= 2 && countB >= 2 && venueCompatible) return true;
 
   return false;
 }

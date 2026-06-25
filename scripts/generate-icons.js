@@ -74,24 +74,27 @@ function lerp(a, b, t) {
   return Math.round(a + (b - a) * t);
 }
 
-// LP판 디자인: 비닐 블랙 배경 + 그루브(동심원) + 번트 오렌지 라벨 + 스핀들 홀
+// LP판 디자인: 비닐이 아이콘 전체를 가득 채워(풀 블리드) OS가 원형/스쿼클로 마스킹하면
+// 진짜 동그란 레코드처럼 보입니다. (이전엔 디스크가 80%만 차지해 검정 사각형에 묻혀 보였음)
+//   - 중앙: 번트 오렌지 라벨 + 스핀들 홀
+//   - 그 바깥: 그루브(동심원 줄무늬)가 가장자리까지
+//   - 모서리(원 밖): 비닐 블랙 — 마스킹되면 잘려나가고, 안 되면 검정 타일 위 레코드로 보임
 function drawIcon(size) {
   const px = Buffer.alloc(size * size * 4);
-  const bg = hexToRgb("#111111");
-  const grooveDark = hexToRgb("#141414");
-  const grooveLight = hexToRgb("#1f1f1f");
-  const rim = hexToRgb("#2e2e2e");
+  const grooveDark = hexToRgb("#131313");
+  const grooveLight = hexToRgb("#202020");
+  const edgeRim = hexToRgb("#050505");
   const labelOuter = hexToRgb("#e87c51");
   const labelInner = hexToRgb("#d95a2b");
+  const labelRing = hexToRgb("#b84a22");
   const hole = hexToRgb("#0c0c0c");
 
   const cx = size / 2;
   const cy = size / 2;
-  // maskable 안전 영역(중앙 80%) 안에 디스크 배치
-  const discR = size * 0.4;
-  const labelR = size * 0.135;
-  const holeR = size * 0.032;
-  const grooveStep = Math.max(2, Math.round(size * 0.018));
+  const discR = size * 0.5; // 디스크가 캔버스를 가득 채움 (풀 블리드)
+  const labelR = size * 0.18; // 라벨을 키워 마스킹 후에도 잘 보이도록
+  const holeR = size * 0.03;
+  const grooveStep = Math.max(2, Math.round(size * 0.02));
 
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
@@ -100,26 +103,29 @@ function drawIcon(size) {
       const dist = Math.sqrt(dx * dx + dy * dy);
       const i = (y * size + x) * 4;
 
-      let color = bg;
+      let color;
 
-      if (dist <= discR) {
-        if (dist <= holeR) {
-          color = hole;
-        } else if (dist <= labelR) {
-          // 라벨: 중심에서 바깥으로 미세한 그라데이션
+      if (dist <= holeR) {
+        color = hole;
+      } else if (dist <= labelR) {
+        // 라벨: 중심에서 바깥으로 미세한 그라데이션 + 가장자리 링
+        if (dist >= labelR - Math.max(1, size * 0.008)) {
+          color = labelRing;
+        } else {
           const t = dist / labelR;
           color = [
             lerp(labelOuter[0], labelInner[0], t),
             lerp(labelOuter[1], labelInner[1], t),
             lerp(labelOuter[2], labelInner[2], t),
           ];
-        } else if (dist >= discR - Math.max(1, size * 0.006)) {
-          color = rim;
-        } else {
-          // 그루브: 동심원 줄무늬
-          const band = Math.floor(dist / grooveStep) % 2;
-          color = band === 0 ? grooveDark : grooveLight;
         }
+      } else if (dist >= discR - Math.max(1, size * 0.012)) {
+        // 디스크 바깥 테두리(마스킹 경계): 아주 어둡게 — 원반 윤곽 강조
+        color = edgeRim;
+      } else {
+        // 그루브: 동심원 줄무늬가 가장자리까지
+        const band = Math.floor(dist / grooveStep) % 2;
+        color = band === 0 ? grooveDark : grooveLight;
       }
 
       px[i] = color[0];

@@ -15,6 +15,7 @@ import {
   GoogleAuthProvider,
   linkWithPopup,
   signInWithCredential,
+  signOut,
   type User,
 } from "firebase/auth";
 import { collection, deleteDoc, doc, getDocs, setDoc } from "firebase/firestore";
@@ -370,6 +371,21 @@ export async function linkWithGoogle(): Promise<{ ok: boolean; message: string }
   }
 }
 
+// 로그아웃 — Google 계정 연결을 해제합니다.
+// 이 기기의 localStorage 데이터는 그대로 두고(기기 내 보관), onAuthStateChanged가
+// 다시 익명 인증으로 돌아가 로컬 데이터를 새 익명 계정에 백업합니다.
+// 같은 Google 계정으로 다시 로그인하면 클라우드의 기록이 그대로 복원됩니다.
+export async function signOutUser(): Promise<{ ok: boolean; message: string }> {
+  load();
+  try {
+    await signOut(auth);
+    return { ok: true, message: "로그아웃했습니다. 이 기기의 기록은 그대로 남아 있어요." };
+  } catch (error) {
+    console.error("로그아웃 실패:", error);
+    return { ok: false, message: "로그아웃에 실패했습니다. 잠시 후 다시 시도해주세요." };
+  }
+}
+
 export function useTicketbook() {
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
@@ -394,5 +410,6 @@ export function useTicketbook() {
     updateRecord,
     syncLegacyIds,
     linkWithGoogle,
+    signOutUser,
   };
 }

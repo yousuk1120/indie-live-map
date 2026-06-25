@@ -12,6 +12,7 @@ import {
   type FontSize,
 } from "../contexts/settings-context";
 import { useArtistPrefs, normalizeArtistKey } from "@/lib/artist-prefs";
+import { useTicketbook } from "@/lib/ticketbook";
 import {
   isPushSupported,
   getPermission,
@@ -39,6 +40,9 @@ export default function SettingsPage() {
       />
 
       <div className="flex flex-col gap-6">
+        {/* ─── 계정 (로그인/로그아웃) ─── */}
+        <AccountSection />
+
         {/* ─── 글자 크기 ─── */}
         <section className="rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-5 md:p-6">
           <div className="mb-1 flex items-center justify-between">
@@ -124,6 +128,95 @@ export default function SettingsPage() {
         />
       </div>
     </PageShell>
+  );
+}
+
+function AccountSection() {
+  const { syncState, userEmail, linkWithGoogle, signOutUser } = useTicketbook();
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  const isLinked = syncState === "linked";
+
+  const handleLogin = async () => {
+    setBusy(true);
+    setMessage("");
+    try {
+      const result = await linkWithGoogle();
+      setMessage(result.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    if (!window.confirm("로그아웃하시겠어요? 이 기기의 기록은 남지만, 다른 기기 동기화는 멈춥니다.")) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const result = await signOutUser();
+      setMessage(result.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-5 md:p-6">
+      <div className="mb-1 flex items-center justify-between gap-3">
+        <h2 className="text-sm font-bold text-[var(--text)]">계정</h2>
+        {isLinked && (
+          <span className="flex items-center gap-1.5 rounded-md bg-[var(--accent-soft)] px-2 py-0.5 text-[11px] font-semibold text-[var(--accent)]">
+            <span className="live-dot" /> 동기화 중
+          </span>
+        )}
+      </div>
+      <p className="mb-4 text-xs text-[var(--muted)]">
+        Google로 로그인하면 저장한 공연·관람 기록이 클라우드에 저장돼,
+        <strong className="text-[var(--text-secondary)]"> 앱을 지웠다 다시 깔거나 기기를 바꿔도</strong> 그대로 복원됩니다.
+      </p>
+
+      {isLinked ? (
+        <div className="flex flex-col gap-3 rounded-xl border border-[var(--line)] bg-[var(--panel-2)] px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold text-[var(--text)]">Google 계정으로 로그인됨</p>
+            {userEmail && <p className="mt-0.5 truncate text-xs text-[var(--muted)]">{userEmail}</p>}
+          </div>
+          <button
+            type="button"
+            onClick={handleLogout}
+            disabled={busy}
+            className="secondary-btn shrink-0 text-xs disabled:opacity-50"
+          >
+            {busy ? "처리 중..." : "로그아웃"}
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={handleLogin}
+          disabled={busy}
+          className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-deep)] px-5 text-sm font-bold text-white transition-all active:scale-[0.98] disabled:opacity-50"
+        >
+          {busy ? (
+            "로그인 중..."
+          ) : (
+            <>
+              <svg width="18" height="18" viewBox="0 0 24 24" style={{ width: 18, height: 18 }}>
+                <path fill="#fff" d="M21.35 11.1H12v2.92h5.35c-.23 1.5-1.6 4.4-5.35 4.4-3.22 0-5.85-2.66-5.85-5.94S8.78 6.54 12 6.54c1.83 0 3.06.78 3.76 1.45l2.56-2.47C16.7 3.92 14.57 3 12 3 6.92 3 2.8 7.12 2.8 12.2S6.92 21.4 12 21.4c5.84 0 9.7-4.1 9.7-9.88 0-.66-.07-1.16-.16-1.42z" />
+              </svg>
+              Google로 로그인
+            </>
+          )}
+        </button>
+      )}
+
+      {message && (
+        <p className="mt-3 rounded-xl border border-[var(--line)] bg-[var(--panel-2)] px-4 py-3 text-xs text-[var(--text-secondary)]">
+          {message}
+        </p>
+      )}
+    </section>
   );
 }
 
