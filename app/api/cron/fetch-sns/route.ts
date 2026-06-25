@@ -25,6 +25,7 @@ async function runPosterBackfill(db: any, FieldValue: any, limit: number) {
   const targets = snap.docs
     .map((d: any) => ({ id: d.id, ...d.data() }))
     .filter((ev: any) => {
+      if (ev.posterUnavailable) return false; // 원본 게시물 삭제로 복구 불가 표시 → 재시도 안 함
       const p = String(ev.posterUrl || "");
       const needs = !p.trim() || /cdninstagram|fbcdn|instagram/.test(p); // 없음 또는 만료위험 인스타 URL
       return needs && String(ev.instagramUrl || "").trim();
@@ -157,6 +158,8 @@ export async function GET(req: Request) {
       const accountData = docSnap.data();
       const accountId = docSnap.id;
       const accountName = accountData.accountName;
+      // 페스티벌 공식 계정 출처 → 공식 포스터/라인업 우선 + 잠금 (밴드 공지 덮어쓰기 방지)
+      const isOfficialFestival = accountData.category === "페스티벌";
 
       try {
         console.log(`[CRON][${accountName}] 크롤링 시작...`);
@@ -296,7 +299,7 @@ export async function GET(req: Request) {
           const matched = existingEvents.find((ev) => isSameConcert(ev, incoming));
 
           if (matched && matched.id) {
-            const merged = mergeConcerts(matched, incoming);
+            const merged = mergeConcerts(matched, incoming, { incomingIsOfficial: isOfficialFestival });
             await db.collection("events").doc(matched.id).update({
               ...merged,
               updatedAt: FieldValue.serverTimestamp(),
@@ -318,6 +321,8 @@ export async function GET(req: Request) {
               instagramUrl: incoming.instagramUrl || "",
               price: incoming.price || "",
               posterUrl: incoming.posterUrl || "",
+              // 공식 페스티벌 계정 출처면 포스터 잠금 (이후 밴드 공지 글이 못 덮어씀)
+              ...(isOfficialFestival && incoming.posterUrl ? { posterLocked: true } : {}),
               ticketOpenAt: incoming.ticketOpenAt || "",
               dayLineups: incoming.dayLineups || [],
               createdAt: FieldValue.serverTimestamp(),

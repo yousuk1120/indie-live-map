@@ -123,11 +123,18 @@ export function isKoreanEvent(event: EventItem) {
     .map(toText)
     .join(" ");
 
-  // 해외 공연 키워드 (일본 + 글로벌)
-  const foreignPattern =
-    /도쿄|오사카|교토|시부야|신주쿠|시모키타|나고야|후쿠오카|삿포로|Tokyo|Osaka|Kyoto|Shibuya|Shinjuku|Shimokitazawa|Nagoya|Fukuoka|Sapporo|Japan|日本|東京|大阪|京都|渋谷|新宿|下北沢|名古屋|福岡|札幌|Taiwan|Taipei|Bangkok|Shanghai|Beijing|Hong Kong|Singapore|New York|London|Berlin|Paris|LA|Los Angeles|Brooklyn|Chicago|Toronto|Sydney|Melbourne|Manila|Jakarta|Vietnam|Hanoi|Ho Chi Minh|Thailand|China|Philippines|Indonesia|Malaysia|USA|UK|Europe|Cotoba|COTOBA/i;
+  // 해외 "지명/국가"만 해외 공연 판정 — 아티스트 이름이 아니라 장소가 해외라는 신호.
+  // CJK 지명은 부분일치로 충분.
+  const cjkForeign =
+    /도쿄|오사카|교토|시부야|신주쿠|시모키타|나고야|후쿠오카|삿포로|日本|東京|大阪|京都|渋谷|新宿|下北沢|名古屋|福岡|札幌/;
 
-  return !foreignPattern.test(text);
+  // 라틴 지명/국가는 반드시 단어 경계(\b)로 검사합니다.
+  // (그러지 않으면 "LA"가 "LATENCY", "UK"가 "...sukha", "USA"가 단어 내부에서 오탐 →
+  //  해외 헤드라이너가 라인업에 있는 국내 페스티벌이 통째로 가려지는 버그. 예: 원유니버스)
+  const latinForeign =
+    /\b(?:Tokyo|Osaka|Kyoto|Shibuya|Shinjuku|Shimokitazawa|Nagoya|Fukuoka|Sapporo|Japan|Taiwan|Taipei|Bangkok|Shanghai|Beijing|Hong Kong|Singapore|New York|London|Berlin|Paris|LA|Los Angeles|Brooklyn|Chicago|Toronto|Sydney|Melbourne|Manila|Jakarta|Vietnam|Hanoi|Ho Chi Minh|Thailand|China|Philippines|Indonesia|Malaysia|USA|UK|Europe|Cotoba)\b/i;
+
+  return !cjkForeign.test(text) && !latinForeign.test(text);
 }
 
 export function isFestivalEvent(event: EventItem) {

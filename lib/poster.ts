@@ -52,13 +52,16 @@ export async function persistPosterImage(url: string): Promise<string> {
       }
     }
 
-    // 2순위: Vercel Blob (BLOB_READ_WRITE_TOKEN 정적 토큰). 스토어가 비공개이므로
-    // access: 'private'로 저장하고, 표시할 때는 /api/proxy-image가 토큰으로 서빙합니다.
+    // 2순위: Vercel Blob (BLOB_READ_WRITE_TOKEN 정적 토큰). 스토어가 비공개(private)로
+    // 설정돼 있으므로 access: 'private'로 저장해야 합니다. (public으로 저장하면
+    // "Cannot use public access on a private store" 에러로 영구화가 통째로 실패 →
+    // 인스타 만료 URL이 그대로 남아 며칠 뒤 포스터가 사라집니다.)
+    // 표시할 때는 /api/proxy-image가 BLOB_READ_WRITE_TOKEN으로 인증해 서빙합니다.
     if (process.env.BLOB_READ_WRITE_TOKEN) {
       try {
         const { put } = await import("@vercel/blob");
         const stored = await put(`posters/${crypto.randomUUID()}.jpg`, data, {
-          access: "public",
+          access: "private", // 스토어가 private 설정 — public으로 저장하면 영구화 전체 실패
           contentType,
           token: process.env.BLOB_READ_WRITE_TOKEN,
         });

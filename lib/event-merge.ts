@@ -22,6 +22,8 @@ export type ConcertRecord = {
   instagramUrl?: string;
   price?: string;
   posterUrl?: string;
+  // 공식 페스티벌 계정에서 받은 포스터는 잠금 — 밴드 공지 글이 덮어쓰지 못합니다.
+  posterLocked?: boolean;
   timetableImageUrl?: string;
   ticketOpenAt?: string; // 티켓 예매 오픈 일시 "YYYY-MM-DD HH:mm"
   dayLineups?: DayLineup[];
@@ -296,7 +298,15 @@ export function mergeDayLineups(a?: DayLineup[], b?: DayLineup[]): DayLineup[] {
 
 // 두 레코드를 하나로 병합한 필드 값을 반환합니다 (id 제외).
 // 페스티벌 라인업 추가 공지처럼 기존 공연에 새 정보가 들어오면 누적됩니다.
-export function mergeConcerts(existing: ConcertRecord, incoming: ConcertRecord): Omit<ConcertRecord, "id"> {
+//
+// opts.incomingIsOfficial: 들어온 정보가 "페스티벌 공식 계정" 출처일 때 true.
+//   → 공식 포스터를 우선 채택하고 posterLocked로 잠가, 이후 밴드 공지 글이
+//     공식 포스터를 덮어쓰지 못하게 합니다. (원유니버스=크라잉넛 포스터 문제 방지)
+export function mergeConcerts(
+  existing: ConcertRecord,
+  incoming: ConcertRecord,
+  opts: { incomingIsOfficial?: boolean } = {}
+): Omit<ConcertRecord, "id"> {
   const rangeA = getDateRange(existing);
   const rangeB = getDateRange(incoming);
 
@@ -314,14 +324,26 @@ export function mergeConcerts(existing: ConcertRecord, incoming: ConcertRecord):
   const priceA = (existing.price || "").trim();
   const priceB = (incoming.price || "").trim();
 
-  // 포스터 선택: 새로 들어온 정보의 라인업이 더 풍부하면(가격 포스터 → 라인업 포스터 공개 등)
-  // 새 포스터로 교체합니다. 그 외에는 기존 포스터 유지.
+  // 포스터 선택 정책 (우선순위 순):
+  //  1) 공식 페스티벌 계정 출처(incomingIsOfficial)면 공식 포스터 채택 + 잠금.
+  //  2) 기존 포스터가 잠겨 있으면(공식) 비공식 글은 절대 덮어쓰지 못함 — 유지.
+  //  3) 그 외: 새 정보의 라인업이 더 풍부하면 교체, 아니면 기존 유지.
   const lineupScore = (r: ConcertRecord) =>
     (r.dayLineups?.length || 0) * 3 + splitArtists(r.artistNames).length;
-  const posterUrl =
-    incoming.posterUrl && lineupScore(incoming) > lineupScore(existing)
-      ? incoming.posterUrl
-      : pickNonEmpty(existing.posterUrl, incoming.posterUrl);
+
+  let posterUrl: string;
+  let posterLocked = !!existing.posterLocked;
+  if (opts.incomingIsOfficial && incoming.posterUrl) {
+    posterUrl = incoming.posterUrl;
+    posterLocked = true;
+  } else if (existing.posterLocked && existing.posterUrl) {
+    posterUrl = existing.posterUrl; // 공식 포스터 잠금 — 비공식 글이 못 덮음
+  } else {
+    posterUrl =
+      incoming.posterUrl && lineupScore(incoming) > lineupScore(existing)
+        ? incoming.posterUrl
+        : pickNonEmpty(existing.posterUrl, incoming.posterUrl);
+  }
 
   return {
     title: preferKoreanText(existing.title, incoming.title),
@@ -335,6 +357,7 @@ export function mergeConcerts(existing: ConcertRecord, incoming: ConcertRecord):
     instagramUrl: pickNonEmpty(incoming.instagramUrl, existing.instagramUrl),
     price: priceB.length > priceA.length ? priceB : priceA,
     posterUrl,
+    ...(posterLocked ? { posterLocked: true } : {}),
     timetableImageUrl: pickNonEmpty(existing.timetableImageUrl, incoming.timetableImageUrl),
     ticketOpenAt: pickNonEmpty(existing.ticketOpenAt, incoming.ticketOpenAt),
     dayLineups,
