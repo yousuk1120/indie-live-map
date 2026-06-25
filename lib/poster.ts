@@ -58,7 +58,7 @@ export async function persistPosterImage(url: string): Promise<string> {
       try {
         const { put } = await import("@vercel/blob");
         const stored = await put(`posters/${crypto.randomUUID()}.jpg`, data, {
-          access: "private",
+          access: "public",
           contentType,
           token: process.env.BLOB_READ_WRITE_TOKEN,
         });
