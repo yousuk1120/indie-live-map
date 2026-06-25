@@ -300,11 +300,21 @@ export async function GET(req: Request) {
 
           if (matched && matched.id) {
             const merged = mergeConcerts(matched, incoming, { incomingIsOfficial: isOfficialFestival });
+            // 재업로드 복원: 원본 삭제로 내려졌던(posterUnavailable) 공연에 새 포스터가 들어오면
+            // 숨김 해제 + 새 포스터로 강제 교체(병합은 옛 만료 URL을 유지하므로 덮어씀).
+            const incomingPersisted = /firebasestorage\.googleapis\.com|storage\.googleapis\.com|blob\.vercel-storage\.com/.test(
+              incoming.posterUrl || ""
+            );
+            const restoring = (matched as any).posterUnavailable && incomingPersisted;
             await db.collection("events").doc(matched.id).update({
               ...merged,
+              ...(restoring ? { posterUrl: incoming.posterUrl, posterUnavailable: FieldValue.delete() } : {}),
               updatedAt: FieldValue.serverTimestamp(),
             });
             Object.assign(matched, merged);
+            if (restoring) {
+              console.log(`[CRON][${accountName}] ♻️ 재업로드 복원: "${merged.title}" (숨김 해제 + 포스터 갱신)`);
+            }
             mergedCount++;
             console.log(`[CRON][${accountName}] 🔄 기존 공연에 병합: "${merged.title}"`);
             results.push({ accountName, status: "merged", title: merged.title });

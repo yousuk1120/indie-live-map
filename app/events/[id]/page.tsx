@@ -32,7 +32,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { id } = await params;
   const event = await fetchEvent(id);
-  if (!event) return { title: "공연을 찾을 수 없습니다 | 라이브클럽맵" };
+  if (!event || event.posterUnavailable) return { title: "공연을 찾을 수 없습니다 | 라이브클럽맵" };
 
   const title = `${event.title || "공연"} | 라이브클럽맵`;
   const description = [
@@ -95,7 +95,8 @@ export default async function EventDetailPage({
 }) {
   const { id } = await params;
   const event = await fetchEvent(id);
-  if (!event) notFound();
+  // 원본 게시물이 삭제돼 내려진 공연은 상세도 404 (재업로드되면 자동 복원)
+  if (!event || event.posterUnavailable) notFound();
 
   return (
     <>

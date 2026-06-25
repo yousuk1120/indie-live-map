@@ -18,6 +18,9 @@ export type EventItem = {
   instagramUrl?: string;
   price?: string;
   posterUrl?: string;
+  // 원본 인스타 게시물이 삭제돼 포스터를 못 구한 공연. true면 목록/상세에서 숨깁니다.
+  // (주최측이 다시 업로드하면 크론이 같은 공연을 병합하며 자동 해제 → 다시 노출)
+  posterUnavailable?: boolean;
   timetableImageUrl?: string; // 주최측 타임테이블 이미지 (페스티벌)
   ticketOpenAt?: string; // 티켓 예매 오픈 일시 "YYYY-MM-DD HH:mm"
   dayLineups?: DayLineup[]; // 날짜별 라인업 (페스티벌)
@@ -352,6 +355,7 @@ export function normalizeEvent(id: string, raw: Record<string, unknown>): EventI
     instagramUrl: toText(raw.instagramUrl),
     price: toText(raw.price),
     posterUrl: toText(raw.posterUrl),
+    posterUnavailable: raw.posterUnavailable === true,
     timetableImageUrl: toText(raw.timetableImageUrl),
     ticketOpenAt: toText(raw.ticketOpenAt),
     dayLineups,
@@ -365,9 +369,13 @@ export function venueSearchCandidates(venueName: string) {
   );
 }
 
-// 뷰어 공통 파이프라인: 국내 공연 → 다가오는 공연 → 중복 병합 → 시간순 정렬
+// 뷰어 공통 파이프라인: 숨김 제외 → 국내 공연 → 다가오는 공연 → 중복 병합 → 시간순 정렬
+// posterUnavailable(원본 게시물 삭제)인 공연은 목록에서 제외합니다.
 export function prepareUpcomingEvents(events: EventItem[]): EventItem[] {
-  const valid = events.filter(isKoreanEvent).filter(isFutureEvent);
+  const valid = events
+    .filter((e) => !e.posterUnavailable)
+    .filter(isKoreanEvent)
+    .filter(isFutureEvent);
   return deduplicateEvents(valid).sort((a, b) => eventTimestamp(a) - eventTimestamp(b));
 }
 
