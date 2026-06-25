@@ -3,13 +3,12 @@
 // PWA 설치 유도 배너 — 브라우저가 설치 가능 상태가 되면(beforeinstallprompt)
 // 하단에 "앱 설치" 배너를 띄웁니다. 닫으면 일정 기간 다시 표시하지 않습니다.
 // (이미 설치됐거나 standalone 모드면 노출하지 않음. iOS 안내는 /settings에서 처리)
+//
+// 설치 이벤트 캡처는 use-install 공유 모듈이 담당합니다(마운트 전 이벤트 누락 방지).
+// 배너를 닫아도 설정 페이지에서 항상 설치할 수 있습니다.
 
 import { useEffect, useState } from "react";
-
-type BeforeInstallPromptEvent = Event & {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
-};
+import { useInstall } from "./use-install";
 
 const DISMISS_KEY = "lcm:install-dismissed";
 const DISMISS_DAYS = 14;
@@ -24,38 +23,19 @@ function recentlyDismissed(): boolean {
 }
 
 export default function InstallPrompt() {
-  const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null);
-  const [visible, setVisible] = useState(false);
+  const { canInstall, standalone, triggerInstall } = useInstall();
+  const [dismissed, setDismissed] = useState(true);
 
   useEffect(() => {
-    // 이미 앱으로 실행 중(standalone)이면 표시하지 않음
-    const standalone =
-      window.matchMedia?.("(display-mode: standalone)").matches ||
-      (window.navigator as unknown as { standalone?: boolean }).standalone === true;
-    if (standalone || recentlyDismissed()) return;
-
-    const onPrompt = (e: Event) => {
-      e.preventDefault();
-      setDeferred(e as BeforeInstallPromptEvent);
-      setVisible(true);
-    };
-    window.addEventListener("beforeinstallprompt", onPrompt);
-
-    const onInstalled = () => setVisible(false);
-    window.addEventListener("appinstalled", onInstalled);
-
-    return () => {
-      window.removeEventListener("beforeinstallprompt", onPrompt);
-      window.removeEventListener("appinstalled", onInstalled);
-    };
+    setDismissed(recentlyDismissed());
   }, []);
 
   const handleInstall = async () => {
-    if (!deferred) return;
-    await deferred.prompt();
-    await deferred.userChoice.catch(() => undefined);
-    setDeferred(null);
-    setVisible(false);
+    const result = await triggerInstall();
+    if (result !== "accepted") {
+      // 설치 거부/불가 시 배너만 닫음 (설정 페이지에서 다시 시도 가능)
+      setDismissed(true);
+    }
   };
 
   const handleDismiss = () => {
@@ -64,10 +44,11 @@ export default function InstallPrompt() {
     } catch {
       // ignore
     }
-    setVisible(false);
+    setDismissed(true);
   };
 
-  if (!visible) return null;
+  // 앱(standalone)에선 숨김 / 설치 프롬프트 없거나 최근에 닫았으면 숨김
+  if (standalone || !canInstall || dismissed) return null;
 
   return (
     <div

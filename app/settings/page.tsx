@@ -13,6 +13,7 @@ import {
 } from "../contexts/settings-context";
 import { useArtistPrefs, normalizeArtistKey } from "@/lib/artist-prefs";
 import { useTicketbook } from "@/lib/ticketbook";
+import { useInstall } from "../components/use-install";
 import {
   isPushSupported,
   getPermission,
@@ -126,8 +127,36 @@ export default function SettingsPage() {
           names={hidden}
           onRemove={removeHidden}
         />
+
+        {/* ─── 버전 정보 ─── */}
+        <VersionFooter />
       </div>
     </PageShell>
+  );
+}
+
+function VersionFooter() {
+  const buildTime = process.env.NEXT_PUBLIC_BUILD_TIME || "";
+  const sha = process.env.NEXT_PUBLIC_BUILD_SHA || "";
+
+  let label = "개발 빌드";
+  if (buildTime) {
+    const d = new Date(buildTime);
+    if (!Number.isNaN(d.getTime())) {
+      // KST(UTC+9) 기준 표기
+      const kst = new Date(d.getTime() + 9 * 3600 * 1000);
+      const pad = (n: number) => String(n).padStart(2, "0");
+      label = `${kst.getUTCFullYear()}.${pad(kst.getUTCMonth() + 1)}.${pad(kst.getUTCDate())} ${pad(kst.getUTCHours())}:${pad(kst.getUTCMinutes())}`;
+    }
+  }
+
+  return (
+    <p className="pb-2 pt-1 text-center text-[11px] text-[var(--faint)]">
+      라이브클럽맵 · 버전 {label}
+      {sha ? ` (${sha})` : ""}
+      <br />
+      <span className="text-[var(--faint)]">업데이트 후 이 시각이 바뀌면 최신 버전이 적용된 거예요.</span>
+    </p>
   );
 }
 
@@ -221,20 +250,25 @@ function AccountSection() {
 }
 
 function InstallSection() {
-  const [platform, setPlatform] = useState<"installed" | "ios" | "other">("other");
+  const { canInstall, standalone, ios, triggerInstall } = useInstall();
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    const standalone =
-      window.matchMedia?.("(display-mode: standalone)").matches ||
-      (window.navigator as unknown as { standalone?: boolean }).standalone === true;
-    if (standalone) {
-      setPlatform("installed");
-      return;
+  const handleInstall = async () => {
+    setBusy(true);
+    setMessage("");
+    try {
+      const result = await triggerInstall();
+      if (result === "accepted") setMessage("설치를 시작합니다! 홈 화면을 확인해보세요.");
+      else if (result === "dismissed") setMessage("설치를 취소했습니다.");
+      else
+        setMessage(
+          "지금은 자동 설치를 쓸 수 없어요. 이미 설치돼 있거나 브라우저가 준비 중일 수 있어요. 아래 수동 방법을 이용해주세요."
+        );
+    } finally {
+      setBusy(false);
     }
-    const ua = navigator.userAgent;
-    const isIOS = /iphone|ipad|ipod/i.test(ua);
-    setPlatform(isIOS ? "ios" : "other");
-  }, []);
+  };
 
   return (
     <section className="rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-5 md:p-6">
@@ -243,22 +277,53 @@ function InstallSection() {
         홈 화면에 추가하면 앱처럼 전체화면으로 빠르게 열리고, 푸시 알림도 받을 수 있어요.
       </p>
 
-      {platform === "installed" ? (
+      {standalone ? (
         <p className="rounded-xl border border-[var(--accent-border)] bg-[var(--accent-soft)] px-4 py-3 text-xs font-semibold text-[var(--accent-2)]">
           ✓ 이미 앱으로 실행 중입니다.
         </p>
-      ) : platform === "ios" ? (
-        <ol className="space-y-2 rounded-xl border border-[var(--line)] bg-[var(--panel-2)] px-4 py-3 text-xs text-[var(--text-secondary)]">
-          <li>1. Safari 하단의 <strong className="text-[var(--text)]">공유 버튼</strong>(□↑)을 누릅니다.</li>
-          <li>2. 메뉴에서 <strong className="text-[var(--text)]">‘홈 화면에 추가’</strong>를 선택합니다.</li>
-          <li>3. 우상단 <strong className="text-[var(--text)]">‘추가’</strong>를 누르면 완료!</li>
-        </ol>
       ) : (
-        <p className="rounded-xl border border-[var(--line)] bg-[var(--panel-2)] px-4 py-3 text-xs text-[var(--text-secondary)]">
-          설치 가능 시 하단에 <strong className="text-[var(--text)]">‘앱으로 설치하기’</strong> 배너가 자동으로 떠요.
-          안 보이면 브라우저 주소창의 <strong className="text-[var(--text)]">설치 아이콘</strong> 또는
-          메뉴 → <strong className="text-[var(--text)]">‘앱 설치’</strong>를 눌러주세요.
-        </p>
+        <>
+          {/* 안드로이드/데스크톱: 네이티브 프롬프트 사용 가능하면 바로 설치 버튼 */}
+          {canInstall && (
+            <button
+              type="button"
+              onClick={handleInstall}
+              disabled={busy}
+              className="mb-3 flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-deep)] px-5 text-sm font-bold text-white transition-all active:scale-[0.98] disabled:opacity-50"
+            >
+              {busy ? "설치 중..." : "지금 앱 설치하기"}
+            </button>
+          )}
+
+          {/* iOS: 항상 수동 안내 (beforeinstallprompt 미지원) */}
+          {ios ? (
+            <ol className="space-y-2 rounded-xl border border-[var(--line)] bg-[var(--panel-2)] px-4 py-3 text-xs text-[var(--text-secondary)]">
+              <li>1. Safari 하단의 <strong className="text-[var(--text)]">공유 버튼</strong>(□↑)을 누릅니다.</li>
+              <li>2. 메뉴에서 <strong className="text-[var(--text)]">‘홈 화면에 추가’</strong>를 선택합니다.</li>
+              <li>3. 우상단 <strong className="text-[var(--text)]">‘추가’</strong>를 누르면 완료!</li>
+              <li className="pt-1 text-[var(--muted)]">
+                ※ 다시 설치하는 경우, 기존 앱을 삭제한 뒤 <strong className="text-[var(--text-secondary)]">Safari로 직접 접속</strong>해서 추가해야 새 아이콘이 적용돼요.
+              </li>
+            </ol>
+          ) : (
+            !canInstall && (
+              <p className="rounded-xl border border-[var(--line)] bg-[var(--panel-2)] px-4 py-3 text-xs text-[var(--text-secondary)]">
+                자동 설치 버튼이 안 보이면 브라우저 <strong className="text-[var(--text)]">메뉴(⋮) → ‘앱 설치’</strong> 또는
+                주소창의 <strong className="text-[var(--text)]">설치 아이콘</strong>을 눌러주세요.
+                <br />
+                <span className="text-[var(--muted)]">
+                  방금 앱을 삭제했다면 브라우저가 잠시 후 다시 설치를 허용해요. 페이지를 새로고침하거나 잠깐 뒤 다시 시도해보세요.
+                </span>
+              </p>
+            )
+          )}
+
+          {message && (
+            <p className="mt-3 rounded-xl border border-[var(--line)] bg-[var(--panel-2)] px-4 py-3 text-xs text-[var(--text-secondary)]">
+              {message}
+            </p>
+          )}
+        </>
       )}
     </section>
   );

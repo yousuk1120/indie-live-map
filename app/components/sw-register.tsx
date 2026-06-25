@@ -32,13 +32,30 @@ export default function SwRegister() {
       window.location.reload();
     });
 
+    // 설치된 앱(standalone)인지 여부 — 앱에서만 "업데이트" 배너를 띄우고,
+    // 웹사이트(브라우저 탭)에서는 배너 없이 새 버전을 즉시 적용합니다.
+    const isStandalone =
+      window.matchMedia?.("(display-mode: standalone)").matches ||
+      (window.navigator as unknown as { standalone?: boolean }).standalone === true;
+
+    // 새 버전(installed 상태)이 감지됐을 때의 처리.
+    //  - 앱: 사용자에게 "업데이트" 배너를 띄움 (사용자가 눌러 적용)
+    //  - 웹: 곧바로 SKIP_WAITING → controllerchange가 1회 새로고침해 즉시 반영
+    const handleNewWorker = (worker: ServiceWorker) => {
+      if (isStandalone) {
+        setWaitingWorker(worker);
+        setShow(true);
+      } else {
+        worker.postMessage({ type: "SKIP_WAITING" });
+      }
+    };
+
     navigator.serviceWorker
       .register("/sw.js", { updateViaCache: "none" })
       .then((registration) => {
-        // 이미 대기 중인 새 버전이 있으면 즉시 알림 (이전 방문에서 받아둔 경우)
+        // 이미 대기 중인 새 버전이 있으면 처리 (이전 방문에서 받아둔 경우)
         if (registration.waiting && navigator.serviceWorker.controller) {
-          setWaitingWorker(registration.waiting);
-          setShow(true);
+          handleNewWorker(registration.waiting);
         }
 
         // 새 버전 설치 감지
@@ -48,8 +65,7 @@ export default function SwRegister() {
           newWorker.addEventListener("statechange", () => {
             // 설치 완료 + 기존 제어 워커 존재 = 업데이트 (첫 설치는 제외)
             if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
-              setWaitingWorker(newWorker);
-              setShow(true);
+              handleNewWorker(newWorker);
             }
           });
         });

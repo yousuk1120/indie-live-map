@@ -5,7 +5,7 @@
 // 앱은 사용자에게 "업데이트" 알림을 띄우고, 사용자가 누르면 SKIP_WAITING 메시지를
 // 보내 새 버전을 적용 → 새로고침합니다. (silent 자동 새로고침으로 인한 끊김 방지)
 
-const CACHE_NAME = "live-club-map-v7";
+const CACHE_NAME = "live-club-map-v8";
 
 self.addEventListener("install", () => {
   // 의도적으로 skipWaiting() 하지 않음 — 사용자 확인 후 적용.
