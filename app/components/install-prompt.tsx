@@ -1,54 +1,56 @@
 "use client";
 
-// PWA 설치 유도 배너 — 브라우저가 설치 가능 상태가 되면(beforeinstallprompt)
-// 하단에 "앱 설치" 배너를 띄웁니다. 닫으면 일정 기간 다시 표시하지 않습니다.
-// (이미 설치됐거나 standalone 모드면 노출하지 않음. iOS 안내는 /settings에서 처리)
+// PWA 설치 유도 배너 — 웹사이트(브라우저)에선 항상 "앱으로 설치" 배너를 띄웁니다.
+// 앱(standalone)으로 실행 중이면 띄우지 않습니다(거기선 업데이트 배너만 표시).
 //
+// 두 가지 모드로 동작합니다.
+//  1) 네이티브 모드: 브라우저가 설치 가능 상태(beforeinstallprompt)면 "설치" 버튼으로
+//     바로 네이티브 설치 프롬프트를 띄웁니다. (설치 안 한 Android/데스크톱 Chrome)
+//  2) 폴백 모드: beforeinstallprompt를 못 받는 환경(iOS Safari·Firefox·시크릿 모드,
+//     또는 이미 설치한 브라우저)에선 "방법 보기" 버튼으로 설정의 수동 설치 가이드로 안내합니다.
+//
+// 닫기(X)는 현재 화면에서만 숨기며, 다시 방문/새로고침하면 또 노출됩니다.
 // 설치 이벤트 캡처는 use-install 공유 모듈이 담당합니다(마운트 전 이벤트 누락 방지).
-// 배너를 닫아도 설정 페이지에서 항상 설치할 수 있습니다.
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useInstall } from "./use-install";
 
-const DISMISS_KEY = "lcm:install-dismissed";
-const DISMISS_DAYS = 14;
-
-function recentlyDismissed(): boolean {
-  try {
-    const ts = Number(localStorage.getItem(DISMISS_KEY) || 0);
-    return ts > 0 && Date.now() - ts < DISMISS_DAYS * 86_400_000;
-  } catch {
-    return false;
-  }
-}
+// 폴백 안내는 마운트 직후 잠깐 기다렸다 노출 — 그 사이 beforeinstallprompt가
+// 도착하면 네이티브 모드로 전환되어 폴백 깜빡임을 막습니다.
+const FALLBACK_DELAY_MS = 1500;
 
 export default function InstallPrompt() {
-  const { canInstall, standalone, triggerInstall } = useInstall();
-  const [dismissed, setDismissed] = useState(true);
+  const router = useRouter();
+  const { canInstall, standalone, ios, triggerInstall } = useInstall();
+  const [dismissed, setDismissed] = useState(false);
+  const [fallbackReady, setFallbackReady] = useState(false);
 
   useEffect(() => {
-    setDismissed(recentlyDismissed());
+    const t = setTimeout(() => setFallbackReady(true), FALLBACK_DELAY_MS);
+    return () => clearTimeout(t);
   }, []);
 
   const handleInstall = async () => {
     const result = await triggerInstall();
     if (result !== "accepted") {
-      // 설치 거부/불가 시 배너만 닫음 (설정 페이지에서 다시 시도 가능)
+      // 설치 거부/불가 시 현재 화면에서만 닫음 (새로고침하면 다시 노출)
       setDismissed(true);
     }
   };
 
-  const handleDismiss = () => {
-    try {
-      localStorage.setItem(DISMISS_KEY, String(Date.now()));
-    } catch {
-      // ignore
-    }
-    setDismissed(true);
-  };
+  // 앱(standalone)에선 숨김. 웹사이트에선 설치 여부와 무관하게 항상 노출.
+  if (standalone || dismissed) return null;
 
-  // 앱(standalone)에선 숨김 / 설치 프롬프트 없거나 최근에 닫았으면 숨김
-  if (standalone || !canInstall || dismissed) return null;
+  // 네이티브 설치가 가능하면 즉시, 아니면 폴백은 짧은 지연 후 노출
+  const native = canInstall;
+  if (!native && !fallbackReady) return null;
+
+  const subtitle = native
+    ? "홈 화면에 추가하면 앱처럼 빠르게 열려요"
+    : ios
+      ? "공유 → ‘홈 화면에 추가’로 앱처럼 쓸 수 있어요"
+      : "홈 화면에 추가하는 방법을 알려드려요";
 
   return (
     <div
@@ -61,18 +63,28 @@ export default function InstallPrompt() {
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-bold text-[var(--text)]">앱으로 설치하기</p>
-          <p className="truncate text-xs text-[var(--muted)]">홈 화면에 추가하면 앱처럼 빠르게 열려요</p>
+          <p className="truncate text-xs text-[var(--muted)]">{subtitle}</p>
         </div>
+        {native ? (
+          <button
+            type="button"
+            onClick={handleInstall}
+            className="shrink-0 rounded-xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-deep)] px-4 py-2.5 text-xs font-bold text-white transition-all active:scale-95"
+          >
+            설치
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => router.push("/settings")}
+            className="shrink-0 rounded-xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-deep)] px-4 py-2.5 text-xs font-bold text-white transition-all active:scale-95"
+          >
+            방법 보기
+          </button>
+        )}
         <button
           type="button"
-          onClick={handleInstall}
-          className="shrink-0 rounded-xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-deep)] px-4 py-2.5 text-xs font-bold text-white transition-all active:scale-95"
-        >
-          설치
-        </button>
-        <button
-          type="button"
-          onClick={handleDismiss}
+          onClick={() => setDismissed(true)}
           aria-label="닫기"
           className="shrink-0 rounded-lg p-1.5 text-[var(--muted)] transition-colors hover:text-[var(--text)]"
         >
