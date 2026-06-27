@@ -34,10 +34,10 @@ function daysToStart(event: EventItem): number {
 
 function HeartIcon({ filled }: { filled: boolean }) {
   return (
-    <svg width={16} height={16} viewBox="0 0 24 24" style={{ width: 16, height: 16 }}
+    <svg width={16} height={16} viewBox="0 0 24 24" style={{ width: 16, height: 16, flexShrink: 0 }}
       fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round"
-        d="M12 21s-7.5-4.6-10-9.2C.6 8.9 2 5.5 5.2 5.1c1.9-.2 3.6.9 4.8 2.4 1.2-1.5 2.9-2.6 4.8-2.4 3.2.4 4.6 3.8 3.2 6.7C19.5 16.4 12 21 12 21z" />
+        d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" />
     </svg>
   );
 }
@@ -164,7 +164,7 @@ function PosterCard({ event, index }: { event: EventItem; index: number }) {
 
 const FILTERS: { key: Filter; label: string }[] = [
   { key: "all", label: "전체" },
-  { key: "favorite", label: "★ 관심" },
+  { key: "favorite", label: "관심 아티스트" },
   { key: "today", label: "오늘" },
   { key: "week", label: "이번 주" },
   { key: "festival", label: "페스티벌" },

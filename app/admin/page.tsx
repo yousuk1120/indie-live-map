@@ -157,6 +157,14 @@ type SourceAccount = {
   isActive: boolean;
 };
 
+type ArtistRequest = {
+  id: string;
+  instagramUrl?: string;
+  accountName?: string;
+  artistName?: string;
+  status?: string;
+};
+
 type CandidateEvent = {
   id: string;
   rawPostId?: string;
@@ -809,11 +817,65 @@ function SourcesTab() {
   const [pendingDeleteIds, setPendingDeleteIds] = useState<Set<string>>(new Set());
   const [optimisticActive, setOptimisticActive] = useState<Record<string, boolean>>({});
 
+  // 사용자 아티스트 추가 요청 (pending 만)
+  const [requests, setRequests] = useState<ArtistRequest[]>([]);
+
   useEffect(() => {
     return onSnapshot(query(collection(db, "source_accounts")), snap =>
       setSources(snap.docs.map(d => ({ id: d.id, ...d.data() } as SourceAccount)))
     );
   }, []);
+
+  useEffect(() => {
+    return onSnapshot(
+      query(collection(db, "artist_requests"), where("status", "==", "pending")),
+      snap => setRequests(snap.docs.map(d => ({ id: d.id, ...d.data() } as ArtistRequest)))
+    );
+  }, []);
+
+  // 요청 승인: 추적 계정(source_accounts)에 등록 + 요청을 approved로 표시
+  const approveRequest = async (req: ArtistRequest) => {
+    let handle = (req.accountName || "").trim();
+    if (!handle) {
+      const entered = window.prompt(
+        `이 요청에서 인스타 아이디를 추출하지 못했어요.\n등록할 인스타 아이디를 입력해주세요.\n(요청 링크: ${req.instagramUrl || "없음"})`,
+        ""
+      );
+      handle = (entered || "").trim().replace(/^@/, "");
+      if (!handle) return;
+    }
+    try {
+      const dup = sources.some(s => s.accountName.trim().toLowerCase() === handle.toLowerCase());
+      if (!dup) {
+        await addDoc(collection(db, "source_accounts"), {
+          accountName: handle,
+          category: "밴드",
+          isActive: true,
+          createdAt: serverTimestamp(),
+        });
+      }
+      await updateDoc(doc(db, "artist_requests", req.id), {
+        status: "approved",
+        resolvedAt: serverTimestamp(),
+      });
+    } catch (err) {
+      console.error("요청 승인 실패:", err);
+      alert("요청 승인에 실패했습니다.");
+    }
+  };
+
+  const rejectRequest = async (req: ArtistRequest) => {
+    if (!window.confirm("이 요청을 거절하시겠습니까?")) return;
+    try {
+      await updateDoc(doc(db, "artist_requests", req.id), {
+        status: "rejected",
+        resolvedAt: serverTimestamp(),
+      });
+    } catch (err) {
+      console.error("요청 거절 실패:", err);
+      alert("요청 거절에 실패했습니다.");
+    }
+  };
 
   const displayedSources = useMemo(
     () =>
@@ -910,6 +972,46 @@ function SourcesTab() {
       </div>
 
       <div className="lg:col-span-8 flex flex-col gap-4">
+        {requests.length > 0 && (
+          <div className="bg-[var(--panel)] border border-[var(--accent-border)] rounded-2xl p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <h2 className="text-sm font-semibold text-[var(--accent)]">사용자 추가 요청</h2>
+              <span className="text-[10px] font-bold bg-[var(--accent-soft)] text-[var(--accent)] px-2 py-1 rounded-md">{requests.length}</span>
+            </div>
+            <div className="flex flex-col gap-2">
+              {requests.map((req) => (
+                <div key={req.id} className="flex items-center justify-between gap-3 bg-[var(--panel-2)] rounded-xl px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-[var(--text)] truncate">
+                      {req.artistName || req.accountName || "(이름 없음)"}
+                      {req.accountName ? <span className="text-[var(--muted)] font-normal"> · @{req.accountName}</span> : null}
+                    </p>
+                    {req.instagramUrl ? (
+                      <a href={req.instagramUrl} target="_blank" rel="noreferrer" className="text-[11px] text-[var(--muted)] underline truncate block">
+                        {req.instagramUrl}
+                      </a>
+                    ) : null}
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    <button
+                      onClick={() => approveRequest(req)}
+                      className="rounded-lg bg-[var(--accent)] text-[#0a0a12] px-3 py-1.5 text-xs font-semibold transition active:scale-95"
+                    >
+                      승인
+                    </button>
+                    <button
+                      onClick={() => rejectRequest(req)}
+                      className="rounded-lg border border-[var(--line)] text-[var(--muted)] px-3 py-1.5 text-xs font-semibold transition hover:text-[var(--text)] active:scale-95"
+                    >
+                      거절
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="flex items-center justify-between px-1">
           <div className="flex items-center gap-2">
             <h2 className="text-sm font-semibold text-[var(--text)]">소스 계정</h2>

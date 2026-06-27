@@ -12,6 +12,8 @@ import {
   type FontSize,
 } from "../contexts/settings-context";
 import { useArtistPrefs, normalizeArtistKey } from "@/lib/artist-prefs";
+import { submitArtistRequest } from "@/lib/artist-requests";
+import { useKnownArtistKeys } from "@/lib/known-artists";
 import { useTicketbook } from "@/lib/ticketbook";
 import { useInstall } from "../components/use-install";
 import {
@@ -30,7 +32,7 @@ const FONT_SIZE_OPTIONS: { value: FontSize; preview: string }[] = [
 
 export default function SettingsPage() {
   const { fontSize, setFontSize } = useSettings();
-  const { favorites, hidden, removeFavorite, removeHidden } = useArtistPrefs();
+  const { favorites, hidden, addFavorite, removeFavorite, removeHidden } = useArtistPrefs();
 
   return (
     <PageShell>
@@ -109,15 +111,15 @@ export default function SettingsPage() {
         {/* ─── 푸시 알림 ─── */}
         <PushSection favorites={favorites} />
 
-        {/* ─── 관심 아티스트 ─── */}
-        <ArtistListSection
-          title="관심 아티스트"
-          description="관심 아티스트의 새 공연이 등록되면 알림을 받고, 홈의 ★ 관심 필터로 모아볼 수 있어요."
-          emptyText="아직 관심 아티스트가 없습니다. 공연 상세 화면에서 아티스트를 ★ 관심 등록해보세요."
-          names={favorites}
-          accent
-          onRemove={removeFavorite}
+        {/* ─── 관심 아티스트 (추가 + 풀에 없으면 자동 추가 요청) ─── */}
+        <FavoriteArtistSection
+          favorites={favorites}
+          addFavorite={addFavorite}
+          removeFavorite={removeFavorite}
         />
+
+        {/* ─── 어드민에게 아티스트 추가 요청 (인스타 링크) ─── */}
+        <ArtistRequestSection />
 
         {/* ─── 숨긴 아티스트 ─── */}
         <ArtistListSection
@@ -421,6 +423,207 @@ function PushSection({ favorites }: { favorites: string[] }) {
       {supported && enabled && favorites.length === 0 && (
         <p className="mt-3 text-[11px] text-[var(--muted)]">
           아직 관심 아티스트가 없어요. 공연 상세에서 ★ 관심 등록을 하면 그 아티스트의 새 공연 알림을 받습니다.
+        </p>
+      )}
+    </section>
+  );
+}
+
+// 관심 아티스트 추가 — 이름으로 등록.
+// 등록한 아티스트가 현재 수집된 공연 풀에 없으면, 자동으로 어드민 "추가 요청"까지 함께 보냅니다.
+function FavoriteArtistSection({
+  favorites,
+  addFavorite,
+  removeFavorite,
+}: {
+  favorites: string[];
+  addFavorite: (name: string) => void;
+  removeFavorite: (name: string) => void;
+}) {
+  const { keys, ready } = useKnownArtistKeys();
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [ok, setOk] = useState(false);
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed || busy) return;
+
+    setBusy(true);
+    setMessage("");
+    try {
+      addFavorite(trimmed);
+
+      // 현재 공연 풀에 있으면 요청 불필요. 로딩 전/불명확하면 안전하게 요청을 보냄.
+      const inPool = ready && keys.has(normalizeArtistKey(trimmed));
+      if (inPool) {
+        setOk(true);
+        setMessage(`‘${trimmed}’ 관심 등록 완료! 새 공연이 올라오면 알림을 받을 수 있어요.`);
+      } else {
+        const result = await submitArtistRequest({ instagramUrl: "", artistName: trimmed });
+        setOk(result.ok);
+        setMessage(
+          result.ok
+            ? `‘${trimmed}’ 관심 등록 완료! 아직 앱에 공연 정보가 없어 추가 요청도 함께 보냈어요. 검토 후 수집되면 알림을 받을 수 있어요.`
+            : `관심 등록은 됐지만 추가 요청 전송에 실패했어요: ${result.message}`
+        );
+      }
+      setName("");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-5 md:p-6">
+      <div className="mb-1 flex items-center justify-between">
+        <h2 className="text-sm font-bold text-[var(--text)]">관심 아티스트</h2>
+        <span className="rounded-md bg-[var(--accent-soft)] px-2 py-0.5 text-[11px] font-semibold text-[var(--accent)]">
+          {favorites.length}
+        </span>
+      </div>
+      <p className="mb-4 text-xs text-[var(--muted)]">
+        보고 싶은 아티스트를 추가하면 새 공연 알림을 받고, 홈의 ‘관심 아티스트’ 필터로 모아볼 수 있어요.
+        아직 앱에 없는 아티스트면 추가 요청이 함께 접수됩니다.
+      </p>
+
+      <form onSubmit={handleAdd} className="mb-4 flex gap-2">
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="아티스트 이름 (예: 실리카겔)"
+          maxLength={100}
+          aria-label="관심 아티스트 이름"
+          className="h-11 flex-1 rounded-xl border border-[var(--line)] bg-[var(--panel-2)] px-4 text-sm text-[var(--text)] placeholder:text-[var(--faint)] focus:border-[var(--accent-border)] focus:outline-none"
+        />
+        <button
+          type="submit"
+          disabled={busy || !name.trim()}
+          className="shrink-0 rounded-xl bg-[var(--accent)] px-4 text-sm font-bold text-[#0a0a12] transition-all active:scale-95 disabled:opacity-40"
+        >
+          {busy ? "추가 중..." : "추가"}
+        </button>
+      </form>
+
+      {message && (
+        <p
+          className={`mb-4 rounded-xl border px-4 py-3 text-xs ${
+            ok
+              ? "border-[var(--accent-border)] bg-[var(--accent-soft)] text-[var(--accent-2)]"
+              : "border-[var(--line)] bg-[var(--panel-2)] text-[var(--text-secondary)]"
+          }`}
+        >
+          {message}
+        </p>
+      )}
+
+      {favorites.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-[var(--line)] bg-[var(--panel-2)] px-4 py-5 text-center text-xs text-[var(--muted)]">
+          아직 관심 아티스트가 없습니다. 위에 이름을 입력해 추가하거나, 공연 상세 화면에서 ★ 관심 등록해보세요.
+        </p>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {favorites.map((favorite) => (
+            <span
+              key={favorite}
+              className="flex items-center gap-1.5 rounded-full border border-[var(--accent-border)] bg-[var(--accent-soft)] px-3 py-1.5 text-xs font-semibold text-[var(--accent-2)]"
+            >
+              {favorite}
+              <button
+                type="button"
+                onClick={() => removeFavorite(favorite)}
+                aria-label={`${favorite} 제거`}
+                className="flex h-4 w-4 items-center justify-center rounded-full text-current opacity-60 transition-opacity hover:opacity-100"
+              >
+                <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} style={{ width: 11, height: 11 }}>
+                  <path strokeLinecap="round" d="M18 6 6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// 어드민에게 "이 아티스트 공연도 크롤링해줘" 요청 — 인스타 링크/아이디로 접수.
+// 검토 후 source_accounts에 등록되면 cron이 해당 아티스트 공연을 자동 수집합니다.
+function ArtistRequestSection() {
+  const [link, setLink] = useState("");
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [ok, setOk] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (busy) return;
+    if (!link.trim() && !name.trim()) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const result = await submitArtistRequest({ instagramUrl: link, artistName: name });
+      setOk(result.ok);
+      setMessage(result.message);
+      if (result.ok) {
+        setLink("");
+        setName("");
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-5 md:p-6">
+      <h2 className="mb-1 text-sm font-bold text-[var(--text)]">찾는 아티스트가 없나요?</h2>
+      <p className="mb-4 text-xs text-[var(--muted)]">
+        보고 싶은 아티스트의 인스타그램 링크(또는 아이디)를 보내주시면, 검토 후 공연 자동 수집 대상에 추가할게요.
+      </p>
+
+      <form onSubmit={handleSubmit} className="flex flex-col gap-2">
+        <input
+          type="text"
+          value={link}
+          onChange={(e) => setLink(e.target.value)}
+          placeholder="인스타그램 링크 또는 @아이디"
+          maxLength={500}
+          aria-label="인스타그램 링크 또는 아이디"
+          className="h-11 w-full rounded-xl border border-[var(--line)] bg-[var(--panel-2)] px-4 text-sm text-[var(--text)] placeholder:text-[var(--faint)] focus:border-[var(--accent-border)] focus:outline-none"
+        />
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="아티스트 이름 (선택)"
+            maxLength={100}
+            aria-label="아티스트 이름 (선택)"
+            className="h-11 flex-1 rounded-xl border border-[var(--line)] bg-[var(--panel-2)] px-4 text-sm text-[var(--text)] placeholder:text-[var(--faint)] focus:border-[var(--accent-border)] focus:outline-none"
+          />
+          <button
+            type="submit"
+            disabled={busy || (!link.trim() && !name.trim())}
+            className="shrink-0 rounded-xl bg-[var(--accent)] px-4 text-sm font-bold text-[#0a0a12] transition-all active:scale-95 disabled:opacity-40"
+          >
+            {busy ? "전송 중..." : "요청 보내기"}
+          </button>
+        </div>
+      </form>
+
+      {message && (
+        <p
+          className={`mt-3 rounded-xl border px-4 py-3 text-xs ${
+            ok
+              ? "border-[var(--accent-border)] bg-[var(--accent-soft)] text-[var(--accent-2)]"
+              : "border-[var(--line)] bg-[var(--panel-2)] text-[var(--text-secondary)]"
+          }`}
+        >
+          {message}
         </p>
       )}
     </section>

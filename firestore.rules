@@ -96,6 +96,25 @@ service cloud.firestore {
       allow delete: if isAuthenticated() && resource.data.uid == request.auth.uid;
     }
 
+    // ─────────────────────────────────────────
+    // 5. 아티스트 추가 요청 (사용자가 인스타 링크로 추적 요청 → 어드민 검토)
+    //    - 로그인(익명 포함) 사용자는 본인 소유의 'pending' 요청만 생성 (스크래핑 없음 = 비용 0)
+    //    - 읽기/승인/거절/삭제는 관리자 전용
+    // ─────────────────────────────────────────
+    match /artist_requests/{docId} {
+      allow read, update, delete: if isAdmin();
+      allow create: if isAuthenticated()
+        && request.resource.data.keys().hasOnly([
+            'instagramUrl', 'accountName', 'artistName', 'status', 'uid', 'createdAt'
+          ])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.instagramUrl is string
+        && request.resource.data.instagramUrl.size() <= 500
+        && isOptionalString(request.resource.data, 'accountName', 100)
+        && isOptionalString(request.resource.data, 'artistName', 100);
+    }
+
     // 그 외 모든 컬렉션은 기본 차단
     match /{document=**} {
       allow read, write: if false;

@@ -234,6 +234,20 @@ export function toggleHidden(name: string) {
   }
 }
 
+// 추가 전용(토글 아님) — 사용자가 직접 이름을 입력해 관심 아티스트로 등록할 때 사용.
+// 이미 있으면 그대로 두고, 숨김에 있으면 자동 제거(상호 배타).
+export function addFavorite(name: string) {
+  load();
+  const trimmed = name.trim();
+  if (!trimmed || hasName(state.favorites, trimmed)) return;
+  setState({
+    favorites: [...state.favorites, trimmed],
+    hidden: removeName(state.hidden, trimmed),
+    updatedAt: new Date().toISOString(),
+  });
+  syncFavoritesToPush();
+}
+
 export function removeFavorite(name: string) {
   load();
   setState({ ...state, favorites: removeName(state.favorites, name), updatedAt: new Date().toISOString() });
@@ -288,6 +302,7 @@ export function useArtistPrefs() {
     isHidden,
     eventHasFavorite,
     eventHasHidden,
+    addFavorite,
     toggleFavorite,
     toggleHidden,
     removeFavorite,
