@@ -93,6 +93,18 @@ export function normalizeConcertTitle(title: string): string {
   return title.toLowerCase().replace(/[\s\-_.,!?'"()\[\]]/g, "").replace(/[^\w가-힣]/g, "");
 }
 
+// 페스티벌 제목의 "회차/연도" 같은 변동 토큰을 제거한 핵심 제목.
+// 같은 행사가 "제23회 자라섬재즈페스티벌" / "2026 자라섬재즈페스티벌"처럼
+// 매년·매수집마다 다른 접두로 들어와도 같은 행사로 묶기 위함입니다.
+// (연도가 달라 묶이면 안 되는 경우는 isSameConcert의 날짜 겹침 조건이 막아줍니다.)
+export function festivalTitleCore(title: string): string {
+  return normalizeConcertTitle(title)
+    .replace(/제\d+회/g, "")          // 제23회
+    .replace(/(?:19|20)\d{2}/g, "")   // 2026 등 연도
+    .replace(/\d+(?:st|nd|rd|th)/g, "") // 23rd 등 영문 서수
+    .replace(/^\d+/, "");             // 남은 선행 숫자(회차 표기)
+}
+
 // 페스티벌 한/영 동의어 그룹 — 한국어/영문 표기가 달라도 같은 행사로 묶습니다.
 export const FESTIVAL_SYNONYM_GROUPS: string[][] = [
   ["펜타포트", "pentaport"],
@@ -103,6 +115,8 @@ export const FESTIVAL_SYNONYM_GROUPS: string[][] = [
   ["뷰티풀민트", "bml", "beautifulmint"],
   ["부산국제록", "birs", "busanrock"],
   ["사운드베리", "soundberry"],
+  ["자라섬", "jarasum"],
+  ["패치룸", "patchroom"],
 ];
 
 export function areSimilarTitles(a: string, b: string): boolean {
@@ -111,6 +125,15 @@ export function areSimilarTitles(a: string, b: string): boolean {
   if (!na || !nb) return false;
   if (na === nb) return true;
   if (na.length >= 4 && nb.length >= 4 && (na.includes(nb) || nb.includes(na))) return true;
+
+  // 회차/연도 변동 토큰을 제거한 핵심 제목으로 한 번 더 비교 —
+  // "제23회 자라섬재즈페스티벌" vs "2026 자라섬재즈페스티벌" 같은 중복을 잡습니다.
+  const ca = festivalTitleCore(a);
+  const cb = festivalTitleCore(b);
+  if (ca && cb) {
+    if (ca === cb) return true;
+    if (ca.length >= 4 && cb.length >= 4 && (ca.includes(cb) || cb.includes(ca))) return true;
+  }
 
   for (const group of FESTIVAL_SYNONYM_GROUPS) {
     if (group.some(k => na.includes(k)) && group.some(k => nb.includes(k))) {
