@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { verifyAdminRequest } from "@/lib/api-auth";
 import { getAdminDb, getAdminMessaging } from "@/lib/firebase/admin";
+import { alertApiError } from "@/lib/notify-admin";
 
 // 아티스트 이름 정규화 — 클라이언트(lib/artist-prefs)의 normalizeArtistKey와 동일해야 매칭됩니다.
 function normalizeArtistKey(name: string): string {
@@ -133,6 +134,7 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     console.error("푸시 발송 실패:", error);
+    await alertApiError("notify-new-event", error);
     return NextResponse.json({ success: false, error: "푸시 발송 중 오류가 발생했습니다." }, { status: 500 });
   }
 }

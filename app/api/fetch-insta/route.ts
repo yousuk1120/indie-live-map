@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { verifyAdminRequest } from "@/lib/api-auth";
+import { alertApiError } from "@/lib/notify-admin";
 
 export async function POST(req: Request) {
   // 관리자 전용: Apify 비용이 발생하는 엔드포인트이므로 무인증 호출을 차단합니다.
@@ -64,6 +65,7 @@ export async function POST(req: Request) {
 
   } catch (error: any) {
     console.error("인스타 크롤링 API 연동 실패:", error);
+    await alertApiError("fetch-insta", error);
     return NextResponse.json({ 
       success: false, 
       error: error.message || "Apify 크롤링 중 오류가 발생했습니다." 

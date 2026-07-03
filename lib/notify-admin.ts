@@ -70,6 +70,47 @@ export async function sendAdminAlert(subject: string, lines: string[]): Promise<
   }
 }
 
+// API 라우트/서버 작업 오류를 관리자에게 알립니다. (각 라우트 catch에서 호출)
+// 알림 실패는 삼켜서 원래 에러 응답 흐름을 막지 않습니다.
+export async function alertApiError(where: string, error: unknown, context?: string): Promise<void> {
+  const message = error instanceof Error ? error.message : String(error);
+  await sendAdminAlert(`🚨 오류: ${where}`, [
+    context || "",
+    `오류: ${message}`,
+  ]).catch(() => {});
+}
+
+// 새 아티스트 추가 요청 하나를 즉시 관리자에게 알립니다. (제출 직후 서버 라우트에서 호출)
+// docId로 실제 pending 요청을 확인해 스팸/중복 알림을 막습니다.
+// 반환: 실제로 알림을 보냈으면 true.
+export async function notifyArtistRequestNow(db: any, FieldValue: any, docId: string): Promise<boolean> {
+  try {
+    if (!docId) return false;
+    const ref = db.collection("artist_requests").doc(docId);
+    const snap = await ref.get();
+    if (!snap.exists) return false;
+    const r = snap.data();
+    if (r.status !== "pending" || r.adminNotifiedAt) return false; // 이미 알림/처리됨 → 스킵
+
+    const name = r.artistName || "(이름 미입력)";
+    const handle = r.accountName ? `@${r.accountName}` : (r.instagramUrl || "");
+    const siteUrl = process.env.ALERT_SITE_URL || "";
+    const result = await sendAdminAlert(`🎤 새 아티스트 추가 요청`, [
+      `${name}  ${handle}`,
+      r.instagramUrl && r.accountName ? r.instagramUrl : "",
+      "",
+      siteUrl ? `검토: ${siteUrl.replace(/\/$/, "")}/admin` : "관리자 페이지(/admin)에서 검토하세요.",
+    ]);
+    if (result.sent) {
+      await ref.update({ adminNotifiedAt: FieldValue.serverTimestamp() }).catch(() => {});
+    }
+    return result.sent;
+  } catch (error) {
+    console.error("[notify-admin] 즉시 아티스트 요청 알림 실패:", error);
+    return false;
+  }
+}
+
 // 새 아티스트 추가 요청 중 아직 알리지 않은 것을 모아 관리자에게 다이제스트 발송.
 // notifiedField가 없는 pending 요청을 대상으로 하고, 발송 후 그 필드를 채워 중복 알림을 막습니다.
 // db: firebase-admin Firestore, FieldValue: firebase-admin FieldValue. (동적 로드 결과를 주입)

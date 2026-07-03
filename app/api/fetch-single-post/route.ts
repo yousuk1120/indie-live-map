@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { verifyAdminRequest } from "@/lib/api-auth";
 import { persistPosterImage } from "@/lib/poster";
+import { alertApiError } from "@/lib/notify-admin";
 
 export async function POST(req: Request) {
   // 관리자 전용 무인증 호출 차단
@@ -61,6 +62,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: true, posterUrl });
   } catch (error: any) {
     console.error("인스타 단일 포스트 크롤링 실패:", error);
+    await alertApiError("fetch-single-post", error);
     return NextResponse.json({
       success: false,
       error: error.message || "스크래핑 중 서버 오류가 발생했습니다.",

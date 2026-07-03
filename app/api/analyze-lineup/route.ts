@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { verifyAdminRequest } from "@/lib/api-auth";
+import { alertApiError } from "@/lib/notify-admin";
 import {
   normalizeDateString,
   mergeDayLineups,
@@ -152,6 +153,7 @@ ${caption ? `- 인스타 원문 캡션:\n${caption.slice(0, 2000)}` : ""}
     });
   } catch (error: any) {
     console.error("[analyze-lineup] 오류:", error);
+    await alertApiError("analyze-lineup", error);
     return NextResponse.json({ success: false, error: error?.message || "분석 실패" }, { status: 500 });
   }
 }

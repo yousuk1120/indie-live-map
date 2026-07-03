@@ -73,7 +73,7 @@ export async function submitArtistRequest(params: {
       return { ok: false, message: "인증 준비 중이에요. 잠시 후 다시 시도해주세요." };
     }
 
-    await addDoc(collection(db, "artist_requests"), {
+    const created = await addDoc(collection(db, "artist_requests"), {
       instagramUrl: instagramUrl.slice(0, 500),
       accountName: parseInstagramHandle(instagramUrl).slice(0, 100),
       artistName: artistName.slice(0, 100),
@@ -81,6 +81,13 @@ export async function submitArtistRequest(params: {
       uid,
       createdAt: serverTimestamp(),
     });
+
+    // 관리자에게 즉시 알림 (실패해도 사용자 요청은 성공 처리 — best-effort)
+    fetch("/api/notify-artist-request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ docId: created.id }),
+    }).catch(() => {});
 
     return {
       ok: true,

@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import { buildEventExtractionPrompt, sanitizeParsedEvent } from "@/lib/ai-event-prompt";
 import { hasMinimumEventInfo } from "@/lib/event-merge";
 import { verifyAdminRequest } from "@/lib/api-auth";
+import { alertApiError } from "@/lib/notify-admin";
 
 export async function POST(req: Request) {
   // 관리자 전용: OpenAI 비용이 발생하는 엔드포인트이므로 무인증 호출을 차단합니다.
@@ -50,6 +51,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: true, data });
   } catch (error: any) {
     console.error("parse-event 오류:", error);
+    await alertApiError("parse-event", error);
     return NextResponse.json(
       {
         success: false,

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { collection, getDocs, updateDoc, doc } from "firebase/firestore";
 import { db } from "@/lib/firebase/firestore";
 import { persistPosterImage } from "@/lib/poster";
+import { alertApiError } from "@/lib/notify-admin";
 
 export async function GET() {
   try {
@@ -50,6 +51,7 @@ export async function GET() {
     return NextResponse.json({ success: true, message: `총 ${successCount}개 포스터를 채웠습니다.` });
   } catch (error: any) {
     console.error("일괄 업데이트 에러", error);
+    await alertApiError("admin-cron-fill", error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
