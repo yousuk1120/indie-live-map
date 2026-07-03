@@ -833,6 +833,25 @@ function SourcesTab() {
     );
   }, []);
 
+  // 계정을 새로 추가하면 그 아티스트의 "예정 공연 전부"를 백필합니다 (scan-account, 백그라운드).
+  // 크론은 계정당 최근 1건만 잡으므로, 추가 시점에 깊게 훑어 놓친 예정 공연을 채웁니다.
+  const backfillAccount = async (handle: string, cat: string) => {
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetch("/api/scan-account", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ accountName: handle, category: cat }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (j?.success) {
+        alert(`@${handle} 예정 공연 수집 완료 — 추가 ${j.added ?? 0} · 병합 ${j.merged ?? 0} · 승인대기 ${j.queued ?? 0}`);
+      }
+    } catch {
+      /* 백필 실패는 조용히 무시 — 다음 크론에서 점진적으로 수집됩니다 */
+    }
+  };
+
   // 요청 승인: 추적 계정(source_accounts)에 등록 + 요청을 approved로 표시
   const approveRequest = async (req: ArtistRequest) => {
     let handle = (req.accountName || "").trim();
@@ -858,6 +877,8 @@ function SourcesTab() {
         status: "approved",
         resolvedAt: serverTimestamp(),
       });
+      // 승인한 아티스트의 예정 공연 전부 백필
+      backfillAccount(handle, "밴드");
     } catch (err) {
       console.error("요청 승인 실패:", err);
       alert("요청 승인에 실패했습니다.");
@@ -890,8 +911,12 @@ function SourcesTab() {
     if (!accountName.trim()) return;
     setIsSubmitting(true);
     try {
-      await addDoc(collection(db, "source_accounts"), { accountName: accountName.trim(), category, isActive, createdAt: serverTimestamp() });
+      const handle = accountName.trim();
+      const cat = category;
+      await addDoc(collection(db, "source_accounts"), { accountName: handle, category: cat, isActive, createdAt: serverTimestamp() });
       setAccountName(""); setCategory("공연장"); setIsActive(true);
+      // 새로 추가한 계정의 예정 공연 전부 백필
+      if (isActive) backfillAccount(handle, cat);
     } catch (err) {
       console.error(err);
       alert("타겟 추가에 실패했습니다.");
