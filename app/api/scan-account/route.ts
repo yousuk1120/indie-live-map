@@ -176,7 +176,8 @@ async function handle(req: Request) {
       }
 
       // 지난 공연 제외 (종료일 기준). 예정 공연만 백필.
-      const evEnd = incoming.endDate && incoming.endDate >= incoming.date ? incoming.endDate : incoming.date;
+      const evStart = incoming.date || "";
+      const evEnd = (incoming.endDate && incoming.endDate >= evStart ? incoming.endDate : evStart) || "";
       if (evEnd && evEnd < todayKST) {
         skipped++;
         continue;
