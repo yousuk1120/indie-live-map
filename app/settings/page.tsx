@@ -497,12 +497,12 @@ function FavoriteArtistSection({
           placeholder="아티스트 이름 (예: 실리카겔)"
           maxLength={100}
           aria-label="관심 아티스트 이름"
-          className="h-11 flex-1 rounded-xl border border-[var(--line)] bg-[var(--panel-2)] px-4 text-sm text-[var(--text)] placeholder:text-[var(--faint)] focus:border-[var(--accent-border)] focus:outline-none"
+          className="h-11 min-w-0 flex-1 rounded-xl border border-[var(--line)] bg-[var(--panel-2)] px-4 text-sm text-[var(--text)] placeholder:text-[var(--faint)] focus:border-[var(--accent-border)] focus:outline-none"
         />
         <button
           type="submit"
           disabled={busy || !name.trim()}
-          className="shrink-0 rounded-xl bg-[var(--accent)] px-4 text-sm font-bold text-[#0a0a12] transition-all active:scale-95 disabled:opacity-40"
+          className="h-11 shrink-0 whitespace-nowrap rounded-xl bg-[var(--accent)] px-4 text-sm font-bold text-[#0a0a12] transition-all active:scale-95 disabled:opacity-40"
         >
           {busy ? "추가 중..." : "추가"}
         </button>
@@ -603,12 +603,12 @@ function ArtistRequestSection() {
             placeholder="아티스트 이름 (선택)"
             maxLength={100}
             aria-label="아티스트 이름 (선택)"
-            className="h-11 flex-1 rounded-xl border border-[var(--line)] bg-[var(--panel-2)] px-4 text-sm text-[var(--text)] placeholder:text-[var(--faint)] focus:border-[var(--accent-border)] focus:outline-none"
+            className="h-11 min-w-0 flex-1 rounded-xl border border-[var(--line)] bg-[var(--panel-2)] px-4 text-sm text-[var(--text)] placeholder:text-[var(--faint)] focus:border-[var(--accent-border)] focus:outline-none"
           />
           <button
             type="submit"
             disabled={busy || (!link.trim() && !name.trim())}
-            className="shrink-0 rounded-xl bg-[var(--accent)] px-4 text-sm font-bold text-[#0a0a12] transition-all active:scale-95 disabled:opacity-40"
+            className="h-11 shrink-0 whitespace-nowrap rounded-xl bg-[var(--accent)] px-4 text-sm font-bold text-[#0a0a12] transition-all active:scale-95 disabled:opacity-40"
           >
             {busy ? "전송 중..." : "요청 보내기"}
           </button>
