@@ -348,19 +348,23 @@ export function mergeConcerts(
   const priceB = (incoming.price || "").trim();
 
   // 포스터 선택 정책 (우선순위 순):
-  //  1) 공식 페스티벌 계정 출처(incomingIsOfficial)면 공식 포스터 채택 + 잠금.
-  //  2) 기존 포스터가 잠겨 있으면(공식) 비공식 글은 절대 덮어쓰지 못함 — 유지.
+  //  1) 기존 포스터가 잠겨 있으면(최초 공식 포스터 또는 관리자 지정) 무엇도 덮지 못함 — 유지.
+  //     ★ 공식 계정이라도 못 덮습니다. 페스티벌 공식 계정은 메인 포스터 외에도
+  //       아티스트 공개 카드/티켓 안내 이미지를 계속 올리는데, 이전엔 그 최신 이미지가
+  //       메인 포스터를 갈아치웠음(펜타포트 등 반복 발생). 잠금은 이제 진짜 잠금입니다.
+  //  2) 잠기지 않았고 공식 계정 출처면 그 포스터를 채택 + 잠금 (최초 1회).
   //  3) 그 외: 새 정보의 라인업이 더 풍부하면 교체, 아니면 기존 유지.
   const lineupScore = (r: ConcertRecord) =>
     (r.dayLineups?.length || 0) * 3 + splitArtists(r.artistNames).length;
 
   let posterUrl: string;
   let posterLocked = !!existing.posterLocked;
-  if (opts.incomingIsOfficial && incoming.posterUrl) {
+  if (existing.posterLocked && existing.posterUrl) {
+    posterUrl = existing.posterUrl; // 잠금 = 진짜 잠금 (공식 포함 자동 교체 금지)
+    posterLocked = true;
+  } else if (opts.incomingIsOfficial && incoming.posterUrl) {
     posterUrl = incoming.posterUrl;
     posterLocked = true;
-  } else if (existing.posterLocked && existing.posterUrl) {
-    posterUrl = existing.posterUrl; // 공식 포스터 잠금 — 비공식 글이 못 덮음
   } else {
     posterUrl =
       incoming.posterUrl && lineupScore(incoming) > lineupScore(existing)
