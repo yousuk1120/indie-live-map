@@ -12,6 +12,7 @@ import {
 import { canonicalVenueName, venueForAccount } from "@/lib/venues";
 import { persistPosterImage, getLastPersistError } from "@/lib/poster";
 import { isKoreanEvent } from "@/lib/events";
+import { sendAdminAlert, notifyPendingArtistRequests } from "@/lib/notify-admin";
 
 // 빌드 타임에 정적 처리 금지 — 항상 런타임에서만 실행
 export const dynamic = "force-dynamic";
@@ -407,7 +408,29 @@ export async function GET(req: Request) {
       console.warn("[CRON] raw_posts 정리 실패 (무시하고 계속):", cleanupError);
     }
 
-    const summary = `${sourcesSnap.size}개 계정 순회 완료. 자동 발행 ${autoPublishCount}건, 병합 ${mergedCount}건, 승인 대기 ${newCandidateCount}건, 정보 부족 생략 ${skippedCount}건, 포스터 백필 ${backfilledPosters}건.`;
+    // [알림] 새 아티스트 추가 요청 다이제스트를 관리자에게 발송 (하루 1회 크론 기준).
+    let notifiedRequests = 0;
+    try {
+      notifiedRequests = await notifyPendingArtistRequests(db, FieldValue);
+      if (notifiedRequests > 0) console.log(`[CRON] 아티스트 요청 알림 ${notifiedRequests}건 발송`);
+    } catch (notifyError) {
+      console.warn("[CRON] 아티스트 요청 알림 실패 (무시하고 계속):", notifyError);
+    }
+
+    // [알림] 계정별 오류가 있었으면 관리자에게 오류 요약 발송.
+    const errored = results.filter((r: any) => r.status === "error");
+    if (errored.length > 0) {
+      await sendAdminAlert(
+        `⚠️ 수집 크론 오류 ${errored.length}건`,
+        [
+          `${sourcesSnap.size}개 계정 중 ${errored.length}개에서 오류가 발생했어요.`,
+          "",
+          ...errored.map((r: any) => `· ${r.accountName}: ${r.error}`),
+        ]
+      );
+    }
+
+    const summary = `${sourcesSnap.size}개 계정 순회 완료. 자동 발행 ${autoPublishCount}건, 병합 ${mergedCount}건, 승인 대기 ${newCandidateCount}건, 정보 부족 생략 ${skippedCount}건, 포스터 백필 ${backfilledPosters}건, 요청 알림 ${notifiedRequests}건.`;
     console.log(`[CRON] ${summary}`);
 
     return NextResponse.json({
@@ -418,6 +441,12 @@ export async function GET(req: Request) {
 
   } catch (error: any) {
     console.error("[CRON] 크론잡 실행 에러:", error);
+    // 치명적 실패는 관리자에게 즉시 알림 (알림 실패는 무시).
+    await sendAdminAlert("🚨 수집 크론 실행 실패", [
+      "수집 크론이 도중에 중단됐어요.",
+      "",
+      `오류: ${error?.message || error}`,
+    ]).catch(() => {});
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
