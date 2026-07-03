@@ -112,6 +112,9 @@ async function handle(req: Request) {
     const existingEvents: ConcertRecord[] = existingSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const isOfficialFestival = category === "페스티벌";
+    // 오늘(KST) 이전에 끝난 공연은 "예정 공연"이 아니므로 제외 —
+    // AI 프롬프트는 연도만 알고 오늘 날짜를 몰라, 지난 공연을 걸러내지 못하기 때문.
+    const todayKST = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
 
     let added = 0, merged = 0, queued = 0, skipped = 0;
     const results: Array<{ title: string; status: string }> = [];
@@ -168,6 +171,13 @@ async function handle(req: Request) {
       };
 
       if (!isKoreanEvent(incoming as any)) {
+        skipped++;
+        continue;
+      }
+
+      // 지난 공연 제외 (종료일 기준). 예정 공연만 백필.
+      const evEnd = incoming.endDate && incoming.endDate >= incoming.date ? incoming.endDate : incoming.date;
+      if (evEnd && evEnd < todayKST) {
         skipped++;
         continue;
       }
