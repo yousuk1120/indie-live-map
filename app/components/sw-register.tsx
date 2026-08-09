@@ -1,17 +1,16 @@
 "use client";
 
-// PWA 서비스 워커 등록 + "새 버전 업데이트" 알림.
+// PWA 서비스 워커 등록 + "자동 업데이트".
 //
-// 새 버전이 배포되면 서비스워커가 대기(waiting) 상태가 되고,
-// 하단에 "새 버전이 나왔어요 — 업데이트" 배너를 띄웁니다.
-// 사용자가 누르면 SKIP_WAITING을 보내 새 버전을 적용하고 새로고침합니다.
+// 새 버전이 배포되면 자동으로 적용합니다(배너 없이). 다만 사용 중 갑자기 새로고침되어
+// 끊기지 않도록, 새 버전 적용에 따른 새로고침은 **화면이 가려질 때(앱 전환/백그라운드)**
+// 수행합니다. 이미 화면이 꺼져 있으면 즉시 적용합니다.
+//  - 앱(standalone)/웹 모두 동일하게 자동 적용
+//  - 앱을 다시 열 때마다(visible) 새 버전이 있는지 확인 → 오래 켜둔 앱도 최신화
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 export default function SwRegister() {
-  const [waitingWorker, setWaitingWorker] = useState<ServiceWorker | null>(null);
-  const [show, setShow] = useState(false);
-
   useEffect(() => {
     if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
 
@@ -24,38 +23,42 @@ export default function SwRegister() {
       return;
     }
 
-    // 새 버전이 제어권을 가져오면 1회 새로고침 (업데이트 적용 직후)
+    // 새 버전이 제어권을 가져오면 새로고침 — 단, 사용 중이면 방해하지 않도록
+    // 화면이 가려질 때(다른 앱 전환/닫기)로 미룹니다. 이미 숨김 상태면 즉시 실행.
     let refreshing = false;
-    navigator.serviceWorker.addEventListener("controllerchange", () => {
+    const reloadWhenHidden = () => {
       if (refreshing) return;
       refreshing = true;
-      window.location.reload();
-    });
-
-    // 설치된 앱(standalone)인지 여부 — 앱에서만 "업데이트" 배너를 띄우고,
-    // 웹사이트(브라우저 탭)에서는 배너 없이 새 버전을 즉시 적용합니다.
-    const isStandalone =
-      window.matchMedia?.("(display-mode: standalone)").matches ||
-      (window.navigator as unknown as { standalone?: boolean }).standalone === true;
-
-    // 새 버전(installed 상태)이 감지됐을 때의 처리.
-    //  - 앱: 사용자에게 "업데이트" 배너를 띄움 (사용자가 눌러 적용)
-    //  - 웹: 곧바로 SKIP_WAITING → controllerchange가 1회 새로고침해 즉시 반영
-    const handleNewWorker = (worker: ServiceWorker) => {
-      if (isStandalone) {
-        setWaitingWorker(worker);
-        setShow(true);
-      } else {
-        worker.postMessage({ type: "SKIP_WAITING" });
+      if (document.visibilityState === "hidden") {
+        window.location.reload();
+        return;
       }
+      const onHide = () => {
+        if (document.visibilityState === "hidden") {
+          document.removeEventListener("visibilitychange", onHide);
+          window.location.reload();
+        }
+      };
+      document.addEventListener("visibilitychange", onHide);
     };
+    navigator.serviceWorker.addEventListener("controllerchange", reloadWhenHidden);
+
+    // 새 버전(installed 상태)이 감지되면 즉시 자동 적용(SKIP_WAITING).
+    // 적용 후 controllerchange가 위 로직으로 (숨김 시) 새로고침합니다.
+    const applyNewWorker = (worker: ServiceWorker) => {
+      worker.postMessage({ type: "SKIP_WAITING" });
+    };
+
+    let swRegistration: ServiceWorkerRegistration | null = null;
 
     navigator.serviceWorker
       .register("/sw.js", { updateViaCache: "none" })
       .then((registration) => {
-        // 이미 대기 중인 새 버전이 있으면 처리 (이전 방문에서 받아둔 경우)
+        swRegistration = registration;
+
+        // 이미 대기 중인 새 버전이 있으면 적용 (이전 방문에서 받아둔 경우)
         if (registration.waiting && navigator.serviceWorker.controller) {
-          handleNewWorker(registration.waiting);
+          applyNewWorker(registration.waiting);
         }
 
         // 새 버전 설치 감지
@@ -65,7 +68,7 @@ export default function SwRegister() {
           newWorker.addEventListener("statechange", () => {
             // 설치 완료 + 기존 제어 워커 존재 = 업데이트 (첫 설치는 제외)
             if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
-              handleNewWorker(newWorker);
+              applyNewWorker(newWorker);
             }
           });
         });
@@ -76,54 +79,20 @@ export default function SwRegister() {
       .catch((error) => {
         console.error("서비스 워커 등록 실패:", error);
       });
+
+    // 앱을 다시 볼 때마다 새 버전 확인 — 오래 켜둔 설치 앱도 최신 버전을 받아옵니다.
+    const checkOnVisible = () => {
+      if (document.visibilityState === "visible") {
+        swRegistration?.update().catch(() => {});
+      }
+    };
+    document.addEventListener("visibilitychange", checkOnVisible);
+
+    return () => {
+      navigator.serviceWorker.removeEventListener("controllerchange", reloadWhenHidden);
+      document.removeEventListener("visibilitychange", checkOnVisible);
+    };
   }, []);
 
-  const applyUpdate = () => {
-    setShow(false);
-    if (waitingWorker) {
-      waitingWorker.postMessage({ type: "SKIP_WAITING" });
-      // controllerchange 이벤트가 새로고침을 처리합니다.
-    } else {
-      window.location.reload();
-    }
-  };
-
-  if (!show) return null;
-
-  return (
-    <div
-      className="fixed inset-x-0 z-[60] px-4"
-      style={{ bottom: "calc(4rem + env(safe-area-inset-bottom) + 12px)" }}
-    >
-      <div className="mx-auto flex max-w-md items-center gap-3 rounded-2xl border border-[var(--accent-border)] bg-[var(--panel)] p-3 shadow-[0_8px_30px_rgba(0,0,0,0.18)] animate-slide-up">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent)]">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 20, height: 20 }}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v6h6M20 20v-6h-6" />
-            <path strokeLinecap="round" strokeLinejoin="round" d="M20 10a8 8 0 0 0-14.3-3.7L4 8M4 14a8 8 0 0 0 14.3 3.7L20 16" />
-          </svg>
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-bold text-[var(--text)]">새 버전이 나왔어요</p>
-          <p className="truncate text-xs text-[var(--muted)]">업데이트하면 최신 기능으로 바뀌어요</p>
-        </div>
-        <button
-          type="button"
-          onClick={applyUpdate}
-          className="shrink-0 rounded-xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-deep)] px-4 py-2.5 text-xs font-bold text-white transition-all active:scale-95"
-        >
-          업데이트
-        </button>
-        <button
-          type="button"
-          onClick={() => setShow(false)}
-          aria-label="나중에"
-          className="shrink-0 rounded-lg p-1.5 text-[var(--muted)] transition-colors hover:text-[var(--text)]"
-        >
-          <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} style={{ width: 16, height: 16 }}>
-            <path strokeLinecap="round" d="M18 6 6 18M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
-    </div>
-  );
+  return null;
 }
