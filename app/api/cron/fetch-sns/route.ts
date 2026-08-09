@@ -278,10 +278,13 @@ export async function GET(req: Request) {
             sourceUrl: parsedInfo.ticketUrl,
             instagramUrl: realPost.instaLink || "",
             price: parsedInfo.price,
+            // 대표 이미지가 실제 포스터일 때만 사용 (티켓정보/타임테이블/안내카드면 비움 → 잘못된 포스터 방지).
             // 포스터가 비어 있으면 단일 게시물에서 추가 스크랩 후 영구화 (포스터 없는 공연 방지)
-            posterUrl: await persistPosterImage(
-              realPost.posterUrl || (await scrapePosterUrl(realPost.instaLink)) || ""
-            ),
+            posterUrl: parsedInfo.imageIsPoster === false
+              ? ""
+              : await persistPosterImage(
+                  realPost.posterUrl || (await scrapePosterUrl(realPost.instaLink)) || ""
+                ),
             ticketOpenAt: parsedInfo.ticketOpenAt || "",
             dayLineups: parsedInfo.dayLineups.map((d) => ({
               date: normalizeDateString(d.date),

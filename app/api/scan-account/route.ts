@@ -188,7 +188,8 @@ async function handle(req: Request) {
         sourceUrl: parsed.ticketUrl,
         instagramUrl: p.instaLink,
         price: parsed.price,
-        posterUrl: await persistPosterImage(p.posterUrl || ""),
+        // 대표 이미지가 실제 포스터일 때만 사용 (티켓정보/타임테이블/안내카드면 비움)
+        posterUrl: parsed.imageIsPoster === false ? "" : await persistPosterImage(p.posterUrl || ""),
         ticketOpenAt: parsed.ticketOpenAt || "",
         dayLineups: parsed.dayLineups
           .map((d) => ({ date: normalizeDateString(d.date), artists: d.artists }))

@@ -13,6 +13,9 @@ export type ParsedEventInfo = {
   price: string;
   ticketOpenAt: string; // 티켓 예매 오픈 일시 "YYYY-MM-DD HH:mm"
   dayLineups: Array<{ date: string; artists: string }>;
+  // 이 게시물의 대표 이미지가 실제 공연 포스터인가? (티켓정보/타임테이블/단일 아티스트 안내카드 등이면 false)
+  // false면 그 이미지를 포스터로 쓰지 않습니다(잘못된 포스터 방지). 확신 없으면 true(기본).
+  imageIsPoster: boolean;
 };
 
 export const EMPTY_PARSED_EVENT: ParsedEventInfo = {
@@ -27,6 +30,7 @@ export const EMPTY_PARSED_EVENT: ParsedEventInfo = {
   price: "",
   ticketOpenAt: "",
   dayLineups: [],
+  imageIsPoster: true,
 };
 
 // AI 응답을 안전한 형태로 정규화 (누락 필드 보정, 타입 검증)
@@ -55,6 +59,8 @@ export function sanitizeParsedEvent(raw: unknown): ParsedEventInfo {
     price: str(r.price),
     ticketOpenAt: str(r.ticketOpenAt),
     dayLineups,
+    // 명시적으로 false일 때만 false. 누락/불확실이면 true(포스터 손실 방지).
+    imageIsPoster: r.imageIsPoster === false ? false : true,
   };
 }
 
@@ -101,6 +107,15 @@ export function buildEventExtractionPrompt(postsText: string, accountName?: stri
 [포스터/게시물 선택 규칙]
 - 같은 공연에 대한 게시물이 여러 개면, **가격표·예매 안내만 있는 이미지보다 메인 포스터나 라인업이 담긴 게시물**을 chosenIndex로 고르세요.
 
+[이미지가 실제 포스터인지 판단 — imageIsPoster]
+- 선택한 게시물의 **대표(첫) 이미지**가 실제 공연/페스티벌 "포스터(또는 라인업 아트워크)"로 보이면 imageIsPoster=true.
+- 아래처럼 포스터가 아닌 보조 그래픽이면 imageIsPoster=false 로 두세요:
+  · "TICKET INFORMATION/티켓 안내/가격표"만 있는 이미지
+  · 요일별 "타임테이블/편성표" 이미지
+  · 특정 한 팀만 크게 넣은 "출연 아티스트 안내 카드"(밴드 계정이 자기 출연을 알리는 홍보 카드 등)
+  · 멤버 사진·일상 사진 등 행사 포스터가 아닌 일반 이미지
+- 판단이 애매하거나 정보가 부족하면 기본값 true 로 두세요(포스터를 잃지 않기 위함).
+
 [아티스트(artistNames) 규칙]
 - 반드시 **실제 출연 팀 이름**을 쉼표로 나열하세요.
 - "70 ARTISTS", "라인업 곧 공개", "20여 팀" 같은 **팀 수·설명 문구는 artistNames에 넣지 마세요**(이런 경우 artistNames는 본문에 적힌 실제 팀명만, 없으면 "").
@@ -120,7 +135,8 @@ ${postsText}
   "ticketUrl": "예매 URL 또는 예매처 안내 (없으면 \\"\\")",
   "price": "티켓 가격 (예: \\"예매 30,000원, 현매 35,000원\\", 없으면 \\"\\")",
   "ticketOpenAt": "티켓 예매 오픈 일시 \\"YYYY-MM-DD HH:mm\\" (본문에 '티켓 오픈' 일시가 명시된 경우만, 없으면 \\"\\")",
-  "dayLineups": [{ "date": "YYYY-MM-DD", "artists": "그날 라인업, 쉼표 구분" }]
+  "dayLineups": [{ "date": "YYYY-MM-DD", "artists": "그날 라인업, 쉼표 구분" }],
+  "imageIsPoster": true 또는 false (대표 이미지가 실제 포스터면 true, 티켓정보/타임테이블/단일 아티스트 안내카드면 false, 애매하면 true)
 }
 
 [예시 1] 캡션: "2026 JUMF 1차 라인업 공개! 8월 14일(금) 실리카겔, 새소년 / 8월 15일(토) 잔나비 / 일정: 2026.8.14~16 전주종합경기장"
