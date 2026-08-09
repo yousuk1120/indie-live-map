@@ -137,9 +137,14 @@ export function downloadEventIcs(event: EventItem): boolean {
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = `${title.replace(/[\\/:*?"<>|]/g, "_").slice(0, 50)}.ics`;
+  anchor.rel = "noopener";
+  anchor.style.display = "none";
   document.body.appendChild(anchor);
   anchor.click();
-  document.body.removeChild(anchor);
-  URL.revokeObjectURL(url);
+  // 즉시 revoke하면 크롬이 다운로드를 취소할 수 있어 지연 후 정리
+  setTimeout(() => {
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }, 4000);
   return true;
 }

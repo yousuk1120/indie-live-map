@@ -184,22 +184,40 @@ export async function shareEventImage(event: EventItem): Promise<void> {
   const fileName = `${(event.title || "공연").replace(/[\\/:*?"<>|]/g, "_").slice(0, 40)}.png`;
   const file = new File([blob], fileName, { type: "image/png" });
 
-  if (typeof navigator.share === "function" && navigator.canShare?.({ files: [file] })) {
+  // 모바일(터치)에서는 Web Share로 공유/저장, 데스크톱에서는 바로 파일 다운로드.
+  // 데스크톱 크롬은 파일 공유 시트가 어색하거나 실패할 수 있어 다운로드를 우선합니다.
+  const isTouch =
+    typeof navigator !== "undefined" &&
+    (navigator.maxTouchPoints > 0 || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent));
+  const canShareFiles =
+    typeof navigator.share === "function" && !!navigator.canShare?.({ files: [file] });
+
+  if (isTouch && canShareFiles) {
     try {
       await navigator.share({ files: [file], title: event.title || "공연" });
       return;
-    } catch {
-      // 공유 취소 시 다운로드로 폴백하지 않고 종료
-      return;
+    } catch (err) {
+      // 사용자가 취소(AbortError)한 경우엔 다운로드하지 않고 종료. 그 외 실패는 다운로드로 폴백.
+      if (err instanceof Error && err.name === "AbortError") return;
     }
   }
 
+  downloadBlob(blob, fileName);
+}
+
+// Blob 파일 다운로드 — 크롬에서 다운로드가 취소되지 않도록 objectURL 폐기/정리를 지연시킵니다.
+// (anchor.click() 직후 즉시 revoke하면 브라우저가 blob을 읽기 전에 URL이 사라져 다운로드가 실패)
+function downloadBlob(blob: Blob, fileName: string): void {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = fileName;
+  anchor.rel = "noopener";
+  anchor.style.display = "none";
   document.body.appendChild(anchor);
   anchor.click();
-  document.body.removeChild(anchor);
-  URL.revokeObjectURL(url);
+  setTimeout(() => {
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }, 4000);
 }
