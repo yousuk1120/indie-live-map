@@ -6,7 +6,9 @@
 //  - 어드민이 검토 후 source_accounts에 등록하면 cron이 해당 계정 공연을 자동 수집합니다.
 //  - 익명 인증(ticketbook의 ensureCloudAuth)으로 uid를 확보해 본인 요청으로 기록합니다.
 
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
+import { useEffect, useState } from "react";
+import { addDoc, collection, onSnapshot, query, serverTimestamp, where } from "firebase/firestore";
+import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "@/lib/firebase/auth";
 import { db } from "@/lib/firebase/firestore";
 import { ensureCloudAuth } from "@/lib/ticketbook";
@@ -53,6 +55,58 @@ function waitForUid(timeoutMs = 4000): Promise<string | null> {
       }
     }, 150);
   });
+}
+
+export type MyArtistRequestStatus = "pending" | "approved" | "rejected";
+
+export type MyArtistRequest = {
+  id: string;
+  artistName?: string;
+  accountName?: string;
+  instagramUrl?: string;
+  status: MyArtistRequestStatus;
+  createdAt?: { seconds?: number } | null;
+};
+
+// 현재(익명 포함) 로그인 사용자가 보낸 아티스트 추가 요청을 실시간 구독합니다.
+// Firestore 규칙에서 본인 요청 읽기가 허용돼야 동작합니다(artist_requests read: 본인 uid).
+export function useMyArtistRequests(): { requests: MyArtistRequest[]; ready: boolean } {
+  const [requests, setRequests] = useState<MyArtistRequest[]>([]);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    ensureCloudAuth();
+    let unsubSnap: () => void = () => {};
+    const unsubAuth = onAuthStateChanged(auth, (user) => {
+      unsubSnap();
+      if (!user) {
+        setRequests([]);
+        setReady(true);
+        return;
+      }
+      const q = query(collection(db, "artist_requests"), where("uid", "==", user.uid));
+      unsubSnap = onSnapshot(
+        q,
+        (snap) => {
+          const list = snap.docs.map((d) => {
+            const data = d.data() as Omit<MyArtistRequest, "id">;
+            return { id: d.id, ...data };
+          });
+          // 최신순 정렬 (createdAt.seconds 기준, 없으면 뒤로)
+          list.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+          setRequests(list);
+          setReady(true);
+        },
+        () => setReady(true) // 권한 오류 등은 조용히 무시(빈 목록 유지)
+      );
+    });
+    return () => {
+      unsubSnap();
+      unsubAuth();
+    };
+  }, []);
+
+  return { requests, ready };
 }
 
 export async function submitArtistRequest(params: {

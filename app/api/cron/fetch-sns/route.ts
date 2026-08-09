@@ -13,6 +13,7 @@ import { canonicalVenueName, venueForAccount } from "@/lib/venues";
 import { persistPosterImage, getLastPersistError } from "@/lib/poster";
 import { isKoreanEvent } from "@/lib/events";
 import { sendAdminAlert, notifyPendingArtistRequests } from "@/lib/notify-admin";
+import { notifyNewEventFromRecord } from "@/lib/push-new-event";
 
 // 빌드 타임에 정적 처리 금지 — 항상 런타임에서만 실행
 export const dynamic = "force-dynamic";
@@ -344,6 +345,8 @@ export async function GET(req: Request) {
             autoPublishCount++;
             console.log(`[CRON][${accountName}] ✅ 자동 발행 완료: "${incoming.title}"`);
             results.push({ accountName, status: "auto-published", title: incoming.title });
+            // 좋아요(관심) 아티스트가 출연하면 구독자에게 새 공연 푸시 (실패해도 수집 흐름 유지)
+            await notifyNewEventFromRecord(incoming, ref.id);
           } else {
             // ⏳ 제목+날짜는 있으나 장소 누락 → candidate_events로 (수동 승인 대기)
             await db.collection("candidate_events").add({

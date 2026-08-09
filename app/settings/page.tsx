@@ -12,7 +12,7 @@ import {
   type FontSize,
 } from "../contexts/settings-context";
 import { useArtistPrefs, normalizeArtistKey } from "@/lib/artist-prefs";
-import { submitArtistRequest } from "@/lib/artist-requests";
+import { submitArtistRequest, useMyArtistRequests, type MyArtistRequest } from "@/lib/artist-requests";
 import { useKnownArtistKeys } from "@/lib/known-artists";
 import { useTicketbook } from "@/lib/ticketbook";
 import { useInstall } from "../components/use-install";
@@ -120,6 +120,9 @@ export default function SettingsPage() {
 
         {/* ─── 어드민에게 아티스트 추가 요청 (인스타 링크) ─── */}
         <ArtistRequestSection />
+
+        {/* ─── 내가 보낸 추가 요청 상태 (검토중/추가됨/반려) ─── */}
+        <MyRequestsSection />
 
         {/* ─── 숨긴 아티스트 ─── */}
         <ArtistListSection
@@ -626,6 +629,67 @@ function ArtistRequestSection() {
           {message}
         </p>
       )}
+    </section>
+  );
+}
+
+// 내가 보낸 아티스트 추가 요청의 처리 상태를 보여줍니다 (검토 중 / 추가됨 / 반려).
+// 승인되면 여기 '추가됨'으로 바뀌고, 푸시 알림도 함께 받습니다.
+const REQUEST_STATUS_META: Record<
+  MyArtistRequest["status"],
+  { label: string; className: string }
+> = {
+  pending: { label: "검토 중", className: "bg-[var(--panel-3)] text-[var(--muted)]" },
+  approved: { label: "추가됨 ✓", className: "bg-[var(--accent-soft)] text-[var(--accent)]" },
+  rejected: { label: "반려", className: "bg-[var(--panel-3)] text-[var(--muted)]" },
+};
+
+function MyRequestsSection() {
+  const { requests, ready } = useMyArtistRequests();
+
+  // 요청이 하나도 없으면 섹션 자체를 숨겨 화면을 깔끔하게 유지
+  if (!ready || requests.length === 0) return null;
+
+  const approvedCount = requests.filter((r) => r.status === "approved").length;
+
+  return (
+    <section className="rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-5 md:p-6">
+      <div className="mb-1 flex items-center justify-between">
+        <h2 className="text-sm font-bold text-[var(--text)]">내 추가 요청</h2>
+        <span className="rounded-md bg-[var(--accent-soft)] px-2 py-0.5 text-[11px] font-semibold text-[var(--accent)]">
+          {requests.length}
+        </span>
+      </div>
+      <p className="mb-4 text-xs text-[var(--muted)]">
+        {approvedCount > 0
+          ? "요청하신 아티스트가 추가됐어요! 관심 등록하면 새 공연 알림을 받을 수 있어요."
+          : "보낸 요청의 처리 상태예요. 승인되면 ‘추가됨’으로 바뀌고 알림을 보내드려요."}
+      </p>
+
+      <div className="flex flex-col gap-2">
+        {requests.map((req) => {
+          const meta = REQUEST_STATUS_META[req.status] ?? REQUEST_STATUS_META.pending;
+          const label = req.artistName || (req.accountName ? `@${req.accountName}` : "요청한 아티스트");
+          return (
+            <div
+              key={req.id}
+              className="flex items-center justify-between gap-3 rounded-xl border border-[var(--line)] bg-[var(--panel-2)] px-4 py-3"
+            >
+              <div className="min-w-0">
+                <p className="truncate text-xs font-semibold text-[var(--text)]">{label}</p>
+                {req.accountName && req.artistName ? (
+                  <p className="truncate text-[11px] text-[var(--muted)]">@{req.accountName}</p>
+                ) : null}
+              </div>
+              <span
+                className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${meta.className}`}
+              >
+                {meta.label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </section>
   );
 }

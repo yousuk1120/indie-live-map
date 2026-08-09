@@ -835,13 +835,14 @@ function SourcesTab() {
 
   // 계정을 새로 추가하면 그 아티스트의 "예정 공연 전부"를 백필합니다 (scan-account, 백그라운드).
   // 크론은 계정당 최근 1건만 잡으므로, 추가 시점에 깊게 훑어 놓친 예정 공연을 채웁니다.
-  const backfillAccount = async (handle: string, cat: string) => {
+  // 새 소스 추가 후 백필. notifyNew=true 를 보내 서버가 "새 아티스트 추가됨" 알림을 발송합니다.
+  const backfillAccount = async (handle: string, cat: string, artistName?: string) => {
     try {
       const token = await auth.currentUser?.getIdToken();
       const res = await fetch("/api/scan-account", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ accountName: handle, category: cat }),
+        body: JSON.stringify({ accountName: handle, category: cat, notifyNew: true, ...(artistName ? { artistName } : {}) }),
       });
       const j = await res.json().catch(() => ({}));
       if (j?.success) {
@@ -877,8 +878,14 @@ function SourcesTab() {
         status: "approved",
         resolvedAt: serverTimestamp(),
       });
+      // 요청자에게 "추가됐어요" 푸시 (fire-and-forget — 실패해도 승인은 유지)
+      fetch("/api/notify-request-approved", {
+        method: "POST",
+        headers: await adminApiHeaders(),
+        body: JSON.stringify({ docId: req.id }),
+      }).catch(() => {});
       // 승인한 아티스트의 예정 공연 전부 백필
-      backfillAccount(handle, "밴드");
+      backfillAccount(handle, "밴드", req.artistName);
     } catch (err) {
       console.error("요청 승인 실패:", err);
       alert("요청 승인에 실패했습니다.");

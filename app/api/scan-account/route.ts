@@ -13,7 +13,8 @@ import {
 import { canonicalVenueName, venueForAccount } from "@/lib/venues";
 import { persistPosterImage } from "@/lib/poster";
 import { isKoreanEvent } from "@/lib/events";
-import { alertApiError } from "@/lib/notify-admin";
+import { alertApiError, sendAdminAlert } from "@/lib/notify-admin";
+import { notifyNewEventFromRecord } from "@/lib/push-new-event";
 
 // 아티스트/계정 하나를 "깊게" 훑어 앞으로 열릴 공연을 전부 수집합니다.
 // 크론은 계정마다 최근 게시물에서 "가장 좋은 1건"만 뽑지만, 여기서는 게시물마다 개별
@@ -46,12 +47,17 @@ async function handle(req: Request) {
   let accountName = searchParams.get("account") || "";
   let category = searchParams.get("category") || "밴드";
   let limit = Math.min(Number(searchParams.get("limit")) || 12, 24);
+  // 새 아티스트/소스 추가 신호(관리자 UI가 백필 시 함께 보냄) + 표시용 이름(선택).
+  let notifyNew = searchParams.get("notifyNew") === "1" || searchParams.get("notifyNew") === "true";
+  let artistName = searchParams.get("artistName") || "";
   if (req.method === "POST") {
     try {
       const b = await req.json();
       if (b.accountName) accountName = String(b.accountName);
       if (b.category) category = String(b.category);
       if (b.limit) limit = Math.min(Number(b.limit) || limit, 24);
+      if (b.notifyNew) notifyNew = Boolean(b.notifyNew);
+      if (b.artistName) artistName = String(b.artistName);
     } catch {
       /* 본문 없으면 쿼리 파라미터 사용 */
     }
@@ -76,15 +82,34 @@ async function handle(req: Request) {
       .where("accountName", "==", accountName)
       .limit(1)
       .get();
+    let sourceRef;
+    let alreadyNotified = false;
     if (srcSnap.empty) {
-      await db.collection("source_accounts").add({
+      sourceRef = await db.collection("source_accounts").add({
         accountName,
         category,
         isActive: true,
         createdAt: FieldValue.serverTimestamp(),
       });
     } else {
-      category = srcSnap.docs[0].data().category || category;
+      const existing = srcSnap.docs[0];
+      sourceRef = existing.ref;
+      category = existing.data().category || category;
+      alreadyNotified = Boolean(existing.data().newSourceNotifiedAt);
+    }
+
+    // 새 아티스트/소스가 추가되면 관리자에게 알림(계정당 한 번만).
+    // 서버가 방금 만들었거나(관리자 아닌 직접 호출) 관리자 UI가 notifyNew=true 를 보낸 경우 발송.
+    // 스크랩 성공 여부와 무관하게 먼저 알리도록, 무거운 Apify 호출 전에 처리합니다.
+    if ((srcSnap.empty || notifyNew) && !alreadyNotified) {
+      const label = artistName ? `${artistName} · @${accountName}` : `@${accountName}`;
+      const siteUrl = process.env.ALERT_SITE_URL || "";
+      await sendAdminAlert("🆕 새 아티스트 추가됨", [
+        `${label}  [${category}]`,
+        `https://www.instagram.com/${accountName}/`,
+        siteUrl ? `관리자: ${siteUrl.replace(/\/$/, "")}/admin` : "",
+      ]);
+      await sourceRef.update({ newSourceNotifiedAt: FieldValue.serverTimestamp() }).catch(() => {});
     }
 
     // 계정 게시물 깊게 스크랩
@@ -212,6 +237,8 @@ async function handle(req: Request) {
         existingEvents.push({ id: ref.id, ...payload });
         added++;
         results.push({ title: incoming.title || "", status: "added" });
+        // 좋아요(관심) 아티스트가 출연하면 구독자에게 새 공연 푸시 (실패해도 백필 흐름 유지)
+        await notifyNewEventFromRecord(incoming, ref.id);
       } else {
         // 장소 누락 → 승인 큐
         await db.collection("candidate_events").add({
