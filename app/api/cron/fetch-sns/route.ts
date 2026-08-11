@@ -7,8 +7,11 @@ import {
   isSameConcert,
   mergeConcerts,
   normalizeDateString,
+  normalizeVenueKey,
   extractDateRange,
 } from "@/lib/event-merge";
+import { isNonOfficialFestivalPost, isPrequelTitle } from "@/lib/official-festivals";
+import { extractScheduleFromPoster } from "@/lib/poster-vision";
 import { canonicalVenueName, venueForAccount } from "@/lib/venues";
 import { persistPosterImage, getLastPersistError } from "@/lib/poster";
 import { isKoreanEvent } from "@/lib/events";
@@ -298,6 +301,48 @@ export async function GET(req: Request) {
             console.log(`[CRON][${accountName}] 해외 공연으로 판별 → 수집 생략: "${incoming.title}"`);
             results.push({ accountName, status: "skip", reason: "overseas" });
             continue;
+          }
+
+          // 공식 전용 페스티벌(예: 블록파티)은 공식 계정 글에서만 수집합니다.
+          // 밴드·공연장 계정이 "○○ 나가요/함께합니다"라며 올린 글은 같은 제목이어도 생략.
+          if (isNonOfficialFestivalPost(incoming.title, accountName)) {
+            skippedCount++;
+            console.log(`[CRON][${accountName}] 공식 계정 아님 → 공식 전용 페스티벌 수집 생략: "${incoming.title}"`);
+            results.push({ accountName, status: "skip", reason: "non-official festival source", title: incoming.title });
+            continue;
+          }
+
+          // 프리퀄/사전공연(부스트업·프리쇼 등)이 본 행사(메인 페스티벌)의 날짜·장소를
+          // 그대로 빌려온 오추출 처리: 같은 날짜+장소의 기존 "본 행사" 이벤트가 있으면
+          // 캡션에서 뽑은 날짜를 신뢰하지 않고, 포스터 이미지를 실제로 확인해
+          // 프리퀄 자신의 진짜 날짜/장소를 복원합니다.
+          //   · 이미지에서 (본 행사와) 다른 날짜를 찾으면 → 그 날짜로 교체해 별도 공연으로 수집.
+          //   · 이미지로도 확정 못 하면 → 메인 일정을 도용한 가짜이므로 수집 생략.
+          // (진짜 프리퀄은 자기만의 날짜·장소를 가지므로 애초에 이 조건에 안 걸립니다.)
+          if (isPrequelTitle(incoming.title) && incoming.date && incoming.venueName) {
+            const stealsMainSchedule = existingEvents.some(
+              (ev) =>
+                !isPrequelTitle(ev.title) &&
+                normalizeDateString(ev.date) === incoming.date &&
+                !!normalizeVenueKey(ev.venueName) &&
+                normalizeVenueKey(ev.venueName) === normalizeVenueKey(incoming.venueName)
+            );
+            if (stealsMainSchedule) {
+              const stolenDate = incoming.date;
+              const poster = await extractScheduleFromPoster(openai, realPost.posterUrl || "", incoming.title);
+              if (poster.date && poster.date !== stolenDate) {
+                // 이미지에서 프리퀄 자신의 날짜 확인 → 그 날짜/장소로 교체 후 별도 공연으로 진행
+                incoming.date = poster.date;
+                incoming.endDate = poster.endDate && poster.endDate !== poster.date ? poster.endDate : "";
+                incoming.venueName = poster.venue ? canonicalVenueName(poster.venue) || poster.venue : "";
+                console.log(`[CRON][${accountName}] 🖼️ 프리퀄 날짜 이미지 복원: "${incoming.title}" → ${incoming.date} @${incoming.venueName || "장소미정"}`);
+              } else {
+                skippedCount++;
+                console.log(`[CRON][${accountName}] 프리퀄이 본 행사 일정 도용(이미지로도 확정 불가) → 수집 생략: "${incoming.title}"`);
+                results.push({ accountName, status: "skip", reason: "prequel borrowed main schedule", title: incoming.title });
+                continue;
+              }
+            }
           }
 
           // 같은 공연이 이미 등록되어 있으면 → 병합 업데이트 (페스티벌 라인업 추가/수정 자동 반영)
