@@ -17,12 +17,6 @@ function splitArtists(value: string): string[] {
     .filter((a) => a.length > 0);
 }
 
-function chunk<T>(arr: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
-}
-
 export type NewEventPushInput = {
   title?: string;
   artists?: string; // 콤마/슬래시 등으로 구분된 출연 아티스트 문자열
@@ -48,25 +42,67 @@ export async function sendNewEventPush(input: NewEventPushInput): Promise<NewEve
     return { sent: 0, failed: 0, targeted: 0, reason: "서버 푸시 모듈 초기화 실패" };
   }
 
-  // favoriteKeys array-contains-any 는 쿼리당 최대 30개 → 청크로 나눠 조회
+  // ── 권위 있는(drift-proof) 타게팅 ──
+  //  구독 문서의 favoriteKeys 는 클라이언트가 best-effort 로 동기화하므로
+  //  기기 변경·클라우드 병합·동기화 실패 시 실제 찜 목록과 어긋날 수 있습니다.
+  //  따라서 여기서는 구독 전체를 훑어, 각 구독 소유자(uid)의 권위 있는 찜 목록
+  //  users/{uid}/prefs/artists.favorites 와 저장된 favoriteKeys 를 합집합으로 매칭합니다.
+  const subsSnap = await db.collection("pushSubscriptions").get();
+  if (subsSnap.empty) return { sent: 0, failed: 0, targeted: 0, reason: "구독자 없음" };
+
+  // 규모가 커지면 역인덱스/Functions 로 이전 필요 — 현재는 소규모라 전체 스캔이 안전·정확.
+  if (subsSnap.size > 500) {
+    console.warn(`[push-new-event] 구독 ${subsSnap.size}건 전체 스캔 — 역인덱스 이전 검토 필요`);
+  }
+
+  type SubDoc = { token?: string; uid?: string; favoriteKeys?: string[] };
+  const subs = subsSnap.docs as any[];
+
+  // 각 uid 의 권위 있는 찜 키를 users/{uid}/prefs/artists 에서 일괄 로드 (uid별 1회)
+  const uids = Array.from(
+    new Set(subs.map((d) => (d.data() as SubDoc).uid).filter(Boolean) as string[])
+  );
+  const prefsKeysByUid = new Map<string, Set<string>>();
+  if (uids.length > 0) {
+    const prefRefs = uids.map((uid) => db.doc(`users/${uid}/prefs/artists`));
+    const prefSnaps = await db.getAll(...prefRefs);
+    prefSnaps.forEach((snap: any, i: number) => {
+      const favs = (snap.exists ? (snap.data()?.favorites as string[] | undefined) : undefined) || [];
+      const keySet = new Set(favs.map(normalizeArtistKey).filter(Boolean));
+      prefsKeysByUid.set(uids[i], keySet);
+    });
+  }
+
   const tokenToKeys = new Map<string, Set<string>>();
   const tokenDocRefs = new Map<string, { delete: () => Promise<unknown> }>();
 
-  for (const keyChunk of chunk(keys, 30)) {
-    const snap = await db
-      .collection("pushSubscriptions")
-      .where("favoriteKeys", "array-contains-any", keyChunk)
-      .get();
+  for (const docSnap of subs) {
+    const data = docSnap.data() as SubDoc;
+    const token = data.token || docSnap.id;
+    if (!token) continue;
 
-    snap.forEach((docSnap: any) => {
-      const data = docSnap.data() as { token?: string; favoriteKeys?: string[] };
-      const token = data.token || docSnap.id;
-      const matched = (data.favoriteKeys || []).filter((k) => keys.includes(k));
-      if (matched.length === 0) return;
-      if (!tokenToKeys.has(token)) tokenToKeys.set(token, new Set());
-      matched.forEach((k) => tokenToKeys.get(token)!.add(k));
-      tokenDocRefs.set(token, docSnap.ref);
-    });
+    // 저장된 favoriteKeys ∪ 권위 있는 prefs 찜 키
+    const favKeys = new Set<string>(data.favoriteKeys || []);
+    const authoritative = data.uid ? prefsKeysByUid.get(data.uid) : undefined;
+    if (authoritative) authoritative.forEach((k) => favKeys.add(k));
+
+    const matched = keys.filter((k) => favKeys.has(k));
+    if (matched.length === 0) continue;
+
+    if (!tokenToKeys.has(token)) tokenToKeys.set(token, new Set());
+    matched.forEach((k) => tokenToKeys.get(token)!.add(k));
+    tokenDocRefs.set(token, docSnap.ref);
+
+    // 자가 치유: 저장된 favoriteKeys 가 권위 목록과 다르면 조용히 갱신(다음 발송 fast-path 정확도↑)
+    if (authoritative && authoritative.size > 0) {
+      const stored = new Set(data.favoriteKeys || []);
+      const union = new Set<string>([...stored, ...authoritative]);
+      if (union.size !== stored.size) {
+        docSnap.ref
+          .set({ favoriteKeys: Array.from(union) }, { merge: true })
+          .catch(() => {});
+      }
+    }
   }
 
   const tokens = Array.from(tokenToKeys.keys());
@@ -121,18 +157,52 @@ export async function sendNewEventPush(input: NewEventPushInput): Promise<NewEve
   return { sent: response.successCount, failed: response.failureCount, targeted: tokens.length };
 }
 
+type ArtistRecord = { title?: string; artistNames?: string; dayLineups?: Array<{ artists?: string }> };
+
+// 레코드의 전체 출연 아티스트 표시명(artistNames + 날짜별 라인업), 키 기준 중복 제거.
+function collectArtistNames(record: ArtistRecord): string[] {
+  const lineupArtists = (record.dayLineups || []).map((d) => d.artists).filter(Boolean).join(", ");
+  const all = splitArtists([record.artistNames, lineupArtists].filter(Boolean).join(", "));
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const name of all) {
+    const key = normalizeArtistKey(name);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(name);
+  }
+  return out;
+}
+
 // 공연 레코드에서 아티스트 문자열을 만들어 푸시 발송(수집 파이프라인용 편의 함수).
 // artistNames + 날짜별 라인업 아티스트를 합쳐 매칭 정확도를 높입니다. 실패는 삼킵니다.
 export async function notifyNewEventFromRecord(
-  record: { title?: string; artistNames?: string; dayLineups?: Array<{ artists?: string }> },
+  record: ArtistRecord,
   eventId?: string
 ): Promise<void> {
   try {
-    const lineupArtists = (record.dayLineups || []).map((d) => d.artists).filter(Boolean).join(", ");
-    const artists = [record.artistNames, lineupArtists].filter(Boolean).join(", ");
+    const artists = collectArtistNames(record).join(", ");
     if (!artists.trim()) return;
     await sendNewEventPush({ title: record.title, artists, eventId });
   } catch (error) {
     console.warn("[push-new-event] 새 공연 푸시 실패(무시):", error);
+  }
+}
+
+// 기존 공연에 병합(merge)되어 라인업에 "새 아티스트"가 추가된 경우,
+// 새로 추가된 아티스트만 대상으로 푸시합니다(기존 라인업 재알림 = 스팸 방지).
+// 예: 이미 등록된 페스티벌에 내 관심 아티스트가 라인업 공개로 추가될 때.
+export async function notifyMergedEventNewArtists(
+  before: ArtistRecord,
+  after: ArtistRecord,
+  eventId?: string
+): Promise<void> {
+  try {
+    const beforeKeys = new Set(collectArtistNames(before).map(normalizeArtistKey));
+    const newNames = collectArtistNames(after).filter((n) => !beforeKeys.has(normalizeArtistKey(n)));
+    if (newNames.length === 0) return;
+    await sendNewEventPush({ title: after.title, artists: newNames.join(", "), eventId });
+  } catch (error) {
+    console.warn("[push-new-event] 병합 신규 아티스트 푸시 실패(무시):", error);
   }
 }

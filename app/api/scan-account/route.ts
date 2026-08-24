@@ -14,7 +14,7 @@ import { canonicalVenueName, venueForAccount } from "@/lib/venues";
 import { persistPosterImage } from "@/lib/poster";
 import { isKoreanEvent } from "@/lib/events";
 import { alertApiError, sendAdminAlert } from "@/lib/notify-admin";
-import { notifyNewEventFromRecord } from "@/lib/push-new-event";
+import { notifyNewEventFromRecord, notifyMergedEventNewArtists } from "@/lib/push-new-event";
 
 // 아티스트/계정 하나를 "깊게" 훑어 앞으로 열릴 공연을 전부 수집합니다.
 // 크론은 계정마다 최근 게시물에서 "가장 좋은 1건"만 뽑지만, 여기서는 게시물마다 개별
@@ -211,11 +211,15 @@ async function handle(req: Request) {
 
       const matched = existingEvents.find((ev) => isSameConcert(ev, incoming));
       if (matched && matched.id) {
+        // 병합 전 라인업 스냅샷 — 새로 추가된 아티스트만 알림 대상으로 삼기 위함
+        const beforeMerge = { artistNames: matched.artistNames, dayLineups: matched.dayLineups };
         const mergedRec = mergeConcerts(matched, incoming, { incomingIsOfficial: isOfficialFestival });
         await db.collection("events").doc(matched.id).update({ ...mergedRec, updatedAt: FieldValue.serverTimestamp() });
         Object.assign(matched, mergedRec);
         merged++;
         results.push({ title: mergedRec.title || "", status: "merged" });
+        // 기존 공연에 관심 아티스트가 라인업으로 새로 추가되면 그 아티스트만 알림
+        await notifyMergedEventNewArtists(beforeMerge, mergedRec, matched.id);
       } else if (incoming.venueName) {
         const payload = {
           title: incoming.title,

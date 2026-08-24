@@ -120,6 +120,8 @@ async function syncWithCloud(user: User) {
     persist();
     emit();
     if (changed) cloudWrite();
+    // 클라우드에서 내려온 관심 목록을 푸시 구독에도 반영 (기기 변경/다른 기기에서 찜한 경우 드리프트 방지)
+    syncFavoritesToPush();
   } catch (error) {
     console.warn("아티스트 설정 동기화 실패 (로컬 전용으로 계속):", error);
   }
@@ -158,6 +160,8 @@ function load() {
     console.error("아티스트 설정 로딩 실패:", error);
   }
   emit();
+  // 앱 시작 시 로컬 관심 목록을 푸시 구독에 재동기화 (과거 드리프트 자가 치유)
+  syncFavoritesToPush();
   startAuth();
 }
 

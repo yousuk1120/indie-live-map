@@ -16,7 +16,7 @@ import { canonicalVenueName, venueForAccount } from "@/lib/venues";
 import { persistPosterImage, getLastPersistError } from "@/lib/poster";
 import { isKoreanEvent } from "@/lib/events";
 import { sendAdminAlert, notifyPendingArtistRequests } from "@/lib/notify-admin";
-import { notifyNewEventFromRecord } from "@/lib/push-new-event";
+import { notifyNewEventFromRecord, notifyMergedEventNewArtists } from "@/lib/push-new-event";
 
 // 빌드 타임에 정적 처리 금지 — 항상 런타임에서만 실행
 export const dynamic = "force-dynamic";
@@ -349,6 +349,8 @@ export async function GET(req: Request) {
           const matched = existingEvents.find((ev) => isSameConcert(ev, incoming));
 
           if (matched && matched.id) {
+            // 병합 전 라인업 스냅샷 — 새로 추가된 아티스트만 알림 대상으로 삼기 위함
+            const beforeMerge = { artistNames: matched.artistNames, dayLineups: matched.dayLineups };
             const merged = mergeConcerts(matched, incoming, { incomingIsOfficial: isOfficialFestival });
             // 재업로드 복원: 원본 삭제로 내려졌던(posterUnavailable) 공연에 새 포스터가 들어오면
             // 숨김 해제 + 새 포스터로 강제 교체(병합은 옛 만료 URL을 유지하므로 덮어씀).
@@ -368,6 +370,8 @@ export async function GET(req: Request) {
             mergedCount++;
             console.log(`[CRON][${accountName}] 🔄 기존 공연에 병합: "${merged.title}"`);
             results.push({ accountName, status: "merged", title: merged.title });
+            // 기존 공연에 관심 아티스트가 라인업으로 새로 추가되면 그 아티스트만 알림 (실패해도 수집 유지)
+            await notifyMergedEventNewArtists(beforeMerge, merged, matched.id);
           } else if (incoming.venueName) {
             // ✅ 완전한 정보(제목+날짜+장소) → events에 직접 등록 (자동 발행)
             const payload = {
