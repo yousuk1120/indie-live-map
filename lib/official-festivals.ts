@@ -45,7 +45,7 @@ export const OFFICIAL_ONLY_FESTIVALS: OfficialFestivalGuard[] = [
   { official: "seouljazzfestival", keywords: ["서울재즈페스티벌", "seouljazzfestival"], label: "서울재즈페스티벌" },
   { official: "seoulspringfestival_official", keywords: ["서울스프링", "seoulspring"], label: "서울스프링페스티벌" },
   { official: "grandmintfestival", keywords: ["그랜드민트", "grandmint"], label: "그랜드민트페스티벌" },
-  { official: "zandarifesta", keywords: ["잔다리", "zandari"], label: "잔다리페스타" },
+  { official: "zandarifesta", keywords: ["잔다리", "잔디리", "zandari"], label: "잔다리페스타" },
   { official: "inmufe.official", keywords: ["인무페", "inmufe"], label: "인천뮤직페스티벌" },
 ];
 

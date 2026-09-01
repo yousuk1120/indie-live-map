@@ -19,6 +19,7 @@ import { db } from "@/lib/firebase/firestore";
 import { ensureCloudAuth } from "@/lib/ticketbook";
 import { refreshSubscriptionFavorites } from "@/lib/fcm";
 import { splitArtists } from "@/lib/event-merge";
+import { normalizeArtistKey } from "@/lib/artist-key";
 import type { EventItem } from "@/lib/events";
 
 export type ArtistPrefsState = {
@@ -37,9 +38,9 @@ let cloudUser: User | null = null;
 const listeners = new Set<() => void>();
 
 // ─── 아티스트 이름 정규화 (매칭 키) ───
-export function normalizeArtistKey(name: string): string {
-  return name.toLowerCase().replace(/[\s\-_.,!?'"()\[\]]/g, "");
-}
+// 실제 구현은 lib/artist-key(한/영 별칭 통합 포함). 서버(push-new-event)와 동일 함수를
+// 공유해야 찜/알림 매칭이 일치하므로 공용 모듈에서 가져와 재노출합니다.
+export { normalizeArtistKey };
 
 // 이벤트의 전체 출연 아티스트 (artistNames + 날짜별 라인업) — 중복 제거된 표시용 목록
 export function eventArtists(event: EventItem): string[] {

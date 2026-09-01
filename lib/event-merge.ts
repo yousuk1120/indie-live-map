@@ -117,6 +117,7 @@ export const FESTIVAL_SYNONYM_GROUPS: string[][] = [
   ["사운드베리", "soundberry"],
   ["자라섬", "jarasum"],
   ["패치룸", "patchroom"],
+  ["잔다리", "잔디리", "zandari"], // "잔디리"는 흔한 오표기 — 같은 잔다리페스타로 병합
 ];
 
 export function areSimilarTitles(a: string, b: string): boolean {
