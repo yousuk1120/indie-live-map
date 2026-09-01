@@ -4,6 +4,7 @@ import { Analytics } from "@vercel/analytics/react";
 import BottomNav from "./components/bottom-nav";
 import SwRegister from "./components/sw-register";
 import InstallPrompt from "./components/install-prompt";
+import UpdatePrompt from "./components/update-prompt";
 import InitialSplash from "./components/initial-splash";
 import { SettingsProvider } from "./contexts/settings-context";
 
@@ -49,6 +50,7 @@ export default function RootLayout({
           {children}
           <BottomNav />
           <InstallPrompt />
+          <UpdatePrompt />
           <InitialSplash />
         </SettingsProvider>
         <SwRegister />

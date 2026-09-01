@@ -4,11 +4,8 @@
 // 그대로 호출할 수 있게 로직을 한곳에 모았습니다. 실패해도 예외를 던지지 않습니다(수집 흐름 보호).
 
 import { getAdminDb, getAdminMessaging } from "@/lib/firebase/admin";
-
-// 아티스트 이름 정규화 — 클라이언트(lib/artist-prefs)의 normalizeArtistKey와 동일해야 매칭됩니다.
-function normalizeArtistKey(name: string): string {
-  return name.toLowerCase().replace(/[\s\-_.,!?'"()\[\]]/g, "");
-}
+// 클라이언트(lib/artist-prefs)와 반드시 동일한 정규화(한/영 별칭 통합 포함)를 써야 매칭됩니다.
+import { normalizeArtistKey } from "@/lib/artist-key";
 
 function splitArtists(value: string): string[] {
   return value

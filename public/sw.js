@@ -2,10 +2,12 @@
 // 페이지: 네트워크 우선(실패 시 캐시) / 정적 자원: 캐시 우선
 //
 // 업데이트 방식: 새 버전은 곧바로 적용하지 않고 "대기(waiting)" 상태로 둡니다.
-// 앱은 사용자에게 "업데이트" 알림을 띄우고, 사용자가 누르면 SKIP_WAITING 메시지를
-// 보내 새 버전을 적용 → 새로고침합니다. (silent 자동 새로고침으로 인한 끊김 방지)
-
-const CACHE_NAME = "live-club-map-v8";
+// 앱은 (1) 사용 중이면 인앱 "업데이트" 배너(update-prompt)로 즉시 적용하게 하고,
+// (2) 배너를 무시하고 백그라운드로 보내면 sw-register가 조용히 자동 적용합니다.
+// 둘 다 SKIP_WAITING 메시지로 새 버전을 활성화 → 새로고침합니다.
+//
+// ⚠️ 릴리스마다 이 버전(v숫자)을 올리세요 — 값이 바뀌어야 브라우저가 새 SW로 인식합니다.
+const CACHE_NAME = "live-club-map-v9";
 
 self.addEventListener("install", () => {
   // 의도적으로 skipWaiting() 하지 않음 — 사용자 확인 후 적용.
