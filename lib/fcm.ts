@@ -67,13 +67,21 @@ async function getMessagingSafe() {
 }
 
 // FCM 백그라운드 SW 등록 — 공개 설정값을 쿼리로 주입 (정적 파일 하드코딩 방지)
+//
+// ⚠️ 반드시 별도 스코프에 등록합니다. /sw.js 와 이 워커가 같은 스코프("/")에 등록되면
+//    페이지 로드마다 /sw.js 가 이 워커를 덮어써 푸시가 표시되지 않던 버그가 있었습니다.
+//    FCM 표준 스코프(/firebase-cloud-messaging-push-scope)로 분리해 둘이 공존하게 합니다.
+const FCM_SW_SCOPE = "/firebase-cloud-messaging-push-scope";
+
 async function registerMessagingSw(): Promise<ServiceWorkerRegistration | undefined> {
   if (!("serviceWorker" in navigator)) return undefined;
   const qs = new URLSearchParams();
   for (const [key, value] of Object.entries(PUBLIC_CONFIG)) {
     if (value) qs.set(key, value);
   }
-  return navigator.serviceWorker.register(`/firebase-messaging-sw.js?${qs.toString()}`);
+  return navigator.serviceWorker.register(`/firebase-messaging-sw.js?${qs.toString()}`, {
+    scope: FCM_SW_SCOPE,
+  });
 }
 
 async function writeSubscription(token: string, favoriteKeys: string[]) {

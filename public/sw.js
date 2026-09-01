@@ -7,7 +7,7 @@
 // 둘 다 SKIP_WAITING 메시지로 새 버전을 활성화 → 새로고침합니다.
 //
 // ⚠️ 릴리스마다 이 버전(v숫자)을 올리세요 — 값이 바뀌어야 브라우저가 새 SW로 인식합니다.
-const CACHE_NAME = "live-club-map-v9";
+const CACHE_NAME = "live-club-map-v10";
 
 self.addEventListener("install", () => {
   // 의도적으로 skipWaiting() 하지 않음 — 사용자 확인 후 적용.
@@ -19,6 +19,51 @@ self.addEventListener("message", (event) => {
   if (event.data && event.data.type === "SKIP_WAITING") {
     self.skipWaiting();
   }
+});
+
+// ─── 웹 푸시 수신 ───
+// /sw.js 와 firebase-messaging-sw.js 는 둘 다 스코프 "/" 라, 페이지 로드 시 나중에
+// 등록되는 /sw.js 가 스코프 "/" 의 활성 워커가 됩니다. 그러면 FCM 푸시 구독이
+// 이 워커로 배달되는데 push 핸들러가 없으면 알림이 표시되지 않습니다(=서버는 성공,
+// 폰엔 안 뜸). 그래서 여기서 직접 push 를 받아 알림을 띄웁니다.
+// (firebase-messaging-sw.js 는 이제 별도 스코프로 분리해 상호 간섭을 없앴습니다.)
+self.addEventListener("push", (event) => {
+  if (!event.data) return;
+  let payload = {};
+  try {
+    payload = event.data.json();
+  } catch (e) {
+    payload = {};
+  }
+  const n = payload.notification || {};
+  const d = payload.data || {};
+  const title = n.title || d.title || "라이브클럽맵";
+  const url = (payload.fcmOptions && payload.fcmOptions.link) || d.url || "/";
+  const options = {
+    body: n.body || d.body || "",
+    icon: n.icon || "/icons/icon-192.png",
+    badge: n.badge || "/icons/icon-192.png",
+    tag: d.tag || "lcm-event",
+    data: { url },
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+// 알림 클릭 → 해당 공연 페이지로 이동(이미 열린 탭이 있으면 포커스)
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const targetUrl = (event.notification.data && event.notification.data.url) || "/";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if ("focus" in client) {
+          client.navigate(targetUrl).catch(() => {});
+          return client.focus();
+        }
+      }
+      if (self.clients.openWindow) return self.clients.openWindow(targetUrl);
+    })
+  );
 });
 
 self.addEventListener("activate", (event) => {
