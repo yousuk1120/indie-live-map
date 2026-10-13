@@ -24,7 +24,7 @@ export const metadata: Metadata = {
   },
   // 소유확인 메타태그 — 구글 서치콘솔 / 네이버 서치어드바이저 HTML 태그 방식.
   verification: {
-    google: "FJ0ELW5O3czFxi3ONklI",
+    google: "FJ0ELW5O3czFxi3ONklI1nejoka2wznOxVWx8jSPKs4",
     other: { "naver-site-verification": "0f9964e147d02307f29d1879e597a4840411a8bb" },
   },
 };
