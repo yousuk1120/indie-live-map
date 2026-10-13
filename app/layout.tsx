@@ -22,14 +22,10 @@ export const metadata: Metadata = {
   icons: {
     apple: "/icons/apple-touch-icon.png",
   },
-  // 소유확인 메타태그 — 서치콘솔/서치어드바이저에서 받은 코드를 Vercel 환경변수에 넣으면 자동 출력.
+  // 소유확인 메타태그 — 구글 서치콘솔 / 네이버 서치어드바이저 HTML 태그 방식.
   verification: {
-    ...(process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION
-      ? { google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION }
-      : {}),
-    ...(process.env.NEXT_PUBLIC_NAVER_SITE_VERIFICATION
-      ? { other: { "naver-site-verification": process.env.NEXT_PUBLIC_NAVER_SITE_VERIFICATION } }
-      : {}),
+    google: "FJ0ELW5O3czFxi3ONklI",
+    other: { "naver-site-verification": "0f9964e147d02307f29d1879e597a4840411a8bb" },
   },
 };
 
