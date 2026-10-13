@@ -146,6 +146,16 @@ export async function GET(req: Request) {
       return NextResponse.json({ success: true, message: "수집할 활성 계정이 없습니다." });
     }
 
+    // 계정이 많아 300초 안에 전부 못 돌면, 매번 앞쪽(doc ID 순) 계정만 처리되고
+    // 뒤쪽 계정은 영영 수집 안 되는 starvation이 생깁니다(실측: 절반이 2~6개월 방치).
+    // → 가장 오래 수집 안 된(lastFetchedAt 오래됨/없음) 계정부터 처리해, 타임아웃이 나도
+    //   방치된 계정이 우선 갱신되도록 매 실행 순서를 회전시킵니다.
+    const lastFetchedSeconds = (d: any) =>
+      d.data().lastFetchedAt?.seconds ?? d.data().lastFetchedAt?._seconds ?? 0;
+    const orderedDocs = [...sourcesSnap.docs].sort(
+      (a, b) => lastFetchedSeconds(a) - lastFetchedSeconds(b)
+    );
+
     // 기존 events 목록 로드 (중복 체크 + 병합용)
     const existingEventsSnap = await db.collection("events").get();
     const existingEvents: ConcertRecord[] = existingEventsSnap.docs.map((d: any) => ({
@@ -159,7 +169,7 @@ export async function GET(req: Request) {
     let mergedCount = 0;
     let skippedCount = 0;
 
-    for (const docSnap of sourcesSnap.docs) {
+    for (const docSnap of orderedDocs) {
       const accountData = docSnap.data();
       const accountId = docSnap.id;
       const accountName = accountData.accountName;
@@ -191,6 +201,14 @@ export async function GET(req: Request) {
         const apifyData = await apifyRes.json();
         const profileData = Array.isArray(apifyData) ? apifyData[0] : null;
         const latestPosts = profileData?.latestPosts ?? [];
+
+        // Apify 스크랩 성공 → 결과(신규/중복/없음)와 무관하게 "방문함"으로 즉시 표시.
+        // starvation 회전 정렬(stalest-first)의 기준값이므로 모든 경로에서 갱신돼야 합니다.
+        await db
+          .collection("source_accounts")
+          .doc(accountId)
+          .update({ lastFetchedAt: FieldValue.serverTimestamp() })
+          .catch(() => {});
 
         if (latestPosts.length === 0) {
           console.log(`[CRON][${accountName}] 최근 게시물이 없습니다.`);
@@ -426,11 +444,6 @@ export async function GET(req: Request) {
             results.push({ accountName, status: "queued", title: incoming.title });
           }
         }
-
-        // [STEP 5] 마지막 수집시간 업데이트
-        await db.collection("source_accounts").doc(accountId).update({
-          lastFetchedAt: FieldValue.serverTimestamp(),
-        });
 
       } catch (accountError: any) {
         console.error(`[CRON][${accountName}] 처리 중 오류:`, accountError.message);
