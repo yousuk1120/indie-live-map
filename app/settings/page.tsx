@@ -428,6 +428,16 @@ function PushSection({ favorites }: { favorites: string[] }) {
           아직 관심 아티스트가 없어요. 공연 상세에서 ★ 관심 등록을 하면 그 아티스트의 새 공연 알림을 받습니다.
         </p>
       )}
+
+      {supported && enabled && (
+        <p className="mt-3 rounded-xl border border-[var(--line)] bg-[var(--panel-2)] px-4 py-3 text-[11px] leading-relaxed text-[var(--muted)]">
+          📱 <strong className="text-[var(--text-secondary)]">안드로이드</strong>에서 앱을 닫아도 알림을 제때 받으려면,
+          휴대폰 <strong className="text-[var(--text-secondary)]">설정 → 배터리</strong>에서 이 앱(또는 브라우저)을{" "}
+          <strong className="text-[var(--text-secondary)]">‘제한 없음’</strong>으로 바꿔주세요. 배터리 최적화가 켜져 있으면
+          백그라운드 알림이 지연되거나 오지 않을 수 있어요. <br />
+          홈 화면에 추가해 앱으로 열면 ‘사이트 알림’이 아니라 <strong className="text-[var(--text-secondary)]">앱 알림</strong>으로 표시됩니다.
+        </p>
+      )}
     </section>
   );
 }

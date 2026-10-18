@@ -18,6 +18,8 @@ import {
 } from "@/lib/event-merge";
 import { canonicalVenueName, venueForAccount } from "@/lib/venues";
 import { isAdminEmail, ADMIN_EMAILS } from "@/lib/admin-config";
+// 서버 sendNewEventPush 와 동일한 정규화(한/영 별칭 통합) — 병합 신규 아티스트 판정에 사용.
+import { normalizeArtistKey } from "@/lib/artist-key";
 
 type EventItem = {
   id: string;
@@ -110,6 +112,34 @@ async function notifyNewEvent(record: ConcertRecord, eventId?: string) {
   } catch (error) {
     console.warn("새 공연 푸시 발송 실패:", error);
   }
+}
+
+// 기존 공연에 병합되어 라인업에 "새로 추가된" 아티스트만 알림(기존 라인업 재알림=스팸 방지).
+// 서버 notifyMergedEventNewArtists 와 동일 로직의 클라이언트판.
+function collectArtistNamesForDiff(rec: { artistNames?: string; dayLineups?: DayLineup[] }): string[] {
+  const lineup = (rec.dayLineups || []).map((d) => d.artists).filter(Boolean).join(", ");
+  const all = [rec.artistNames, lineup].filter(Boolean).join(", ")
+    .split(/[,/|·]+/).map((a) => a.trim()).filter(Boolean);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const n of all) {
+    const k = normalizeArtistKey(n);
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    out.push(n);
+  }
+  return out;
+}
+
+async function notifyMergedNewArtists(
+  before: { artistNames?: string; dayLineups?: DayLineup[] },
+  after: ConcertRecord,
+  eventId?: string
+) {
+  const beforeKeys = new Set(collectArtistNamesForDiff(before).map(normalizeArtistKey));
+  const newNames = collectArtistNamesForDiff(after).filter((n) => !beforeKeys.has(normalizeArtistKey(n)));
+  if (newNames.length === 0) return;
+  await notifyNewEvent({ ...after, artistNames: newNames.join(", "), dayLineups: [] } as ConcertRecord, eventId);
 }
 
 // Firestore 규칙(isValidEvent)의 길이 제한에 맞춰 문자열을 자릅니다.
@@ -482,11 +512,16 @@ function EventsTab() {
           });
         }
       } else {
-        await addDoc(collection(db, "events"), {
+        const ref = await addDoc(collection(db, "events"), {
           title, date, endDate, time, venueName, artistNames, sourceUrl, instagramUrl, price, timetableImageUrl,
           ...(autoFetchedPosterUrl ? { posterUrl: autoFetchedPosterUrl } : {}),
           createdAt: serverTimestamp(),
         });
+        // 관심 아티스트 구독자에게 새 공연 푸시 (수동 등록 트리거)
+        void notifyNewEvent(
+          { title, date, endDate, time, venueName, artistNames, sourceUrl, instagramUrl, price } as ConcertRecord,
+          ref.id
+        );
         handleCancelEdit();
       }
     } catch (error) {
@@ -1141,6 +1176,8 @@ function SourcesTab() {
                         // 같은 공연 → 기존 문서에 병합 (라인업 추가/수정 자동 반영, 한국어 우선)
                         const merged = mergeConcerts(matched, incoming);
                         await updateDoc(doc(db, "events", matched.id), { ...merged, updatedAt: serverTimestamp() });
+                        // 라인업에 새로 추가된 관심 아티스트만 알림
+                        void notifyMergedNewArtists(matched, incoming, matched.id);
                       } else if (incoming.venueName) {
                         // 완전한 정보 → 자동 발행
                         const newRef = await addDoc(collection(db, "events"), {
@@ -1392,7 +1429,7 @@ function CandidatesTab() {
       );
 
       if (hasAllFields) {
-        await addDoc(collection(db, "events"), {
+        const ref = await addDoc(collection(db, "events"), {
           title: parsedInfo.title,
           date: parsedInfo.date,
           time: parsedInfo.time,
@@ -1403,6 +1440,20 @@ function CandidatesTab() {
           price: parsedInfo.price,
           createdAt: serverTimestamp(),
         });
+        // 관심 아티스트 구독자에게 새 공연 푸시 (수동 주입 트리거)
+        void notifyNewEvent(
+          {
+            title: parsedInfo.title,
+            date: parsedInfo.date,
+            time: parsedInfo.time,
+            venueName: parsedInfo.venueName,
+            artistNames: parsedInfo.artistNames,
+            sourceUrl: parsedInfo.ticketUrl,
+            instagramUrl: instaLink,
+            price: parsedInfo.price,
+          } as ConcertRecord,
+          ref.id
+        );
       } else {
         await addDoc(collection(db, "candidate_events"), {
           rawPostId: rawDocRef.id,
@@ -1500,6 +1551,8 @@ function CandidatesTab() {
           const merged = mergeConcerts(duplicate, incoming);
           await updateDoc(doc(db, "events", duplicate.id), { ...merged, updatedAt: serverTimestamp() });
           await deleteDoc(doc(db, "candidate_events", approvedId));
+          // 라인업에 새로 추가된 관심 아티스트만 알림
+          void notifyMergedNewArtists(duplicate, incoming, duplicate.id);
         } catch (err) {
           console.error("병합 실패:", err);
           alert("병합에 실패했습니다. 항목이 복원됩니다.");
@@ -1519,7 +1572,7 @@ function CandidatesTab() {
       setApprovingItem(null);
 
       try {
-        await addDoc(collection(db, "events"), {
+        const ref = await addDoc(collection(db, "events"), {
           title: incoming.title,
           date: incoming.date,
           endDate: incoming.endDate || "",
@@ -1532,6 +1585,8 @@ function CandidatesTab() {
           dayLineups: incoming.dayLineups || [],
           createdAt: serverTimestamp(),
         });
+        // 관심 아티스트 구독자에게 새 공연 푸시 (수동 승인 발행 트리거)
+        void notifyNewEvent(incoming, ref.id);
         await deleteDoc(doc(db, "candidate_events", approvedId));
       } catch (err) {
         console.error("승인 발행 실패:", err);
