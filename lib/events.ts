@@ -2,7 +2,7 @@
 // 순수 함수만 포함하므로 "use client" 지시문이 없습니다.
 
 import { isSameConcert, mergeConcerts, extractDateRange } from "./event-merge";
-import { canonicalVenueName } from "./venues";
+import { canonicalVenueName, venueQueryOverrides } from "./venues";
 
 export type DayLineup = { date: string; artists: string };
 
@@ -364,8 +364,10 @@ export function normalizeEvent(id: string, raw: Record<string, unknown>): EventI
 
 export function venueSearchCandidates(venueName: string) {
   const value = toText(venueName);
+  // 큐레이션된 공연장은 지역 수식어 질의를 최우선으로 (동명 지방 장소 오탐 방지)
+  const overrides = venueQueryOverrides(value);
   return Array.from(
-    new Set([value, `${value} 공연장`, `${value} 라이브클럽`, `${value} 서울`, `${value} 홍대`].filter(Boolean))
+    new Set([...overrides, value, `${value} 공연장`, `${value} 라이브클럽`, `${value} 서울`, `${value} 홍대`].filter(Boolean))
   );
 }
 

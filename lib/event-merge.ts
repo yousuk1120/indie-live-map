@@ -163,14 +163,21 @@ function normalizeArtistKey(name: string): string {
   return name.toLowerCase().replace(/[\s\-_.,!?'"()\[\]]/g, "");
 }
 
+// 두 라인업의 공통 아티스트 수.
+export function lineupCommonCount(a?: string, b?: string): number {
+  const listA = splitArtists(a).map(normalizeArtistKey).filter(Boolean);
+  const listB = splitArtists(b).map(normalizeArtistKey).filter(Boolean);
+  if (listA.length === 0 || listB.length === 0) return 0;
+  const setB = new Set(listB);
+  return listA.filter((k) => setB.has(k)).length;
+}
+
 // 두 라인업의 겹침 비율 (작은 쪽 기준). 0~1.
 export function lineupOverlapRatio(a?: string, b?: string): number {
   const listA = splitArtists(a).map(normalizeArtistKey).filter(Boolean);
   const listB = splitArtists(b).map(normalizeArtistKey).filter(Boolean);
   if (listA.length === 0 || listB.length === 0) return 0;
-
-  const setB = new Set(listB);
-  const common = listA.filter((k) => setB.has(k)).length;
+  const common = lineupCommonCount(a, b);
   return common / Math.min(listA.length, listB.length);
 }
 
@@ -178,6 +185,16 @@ export function normalizeVenueKey(value?: string): string {
   // 별칭 매핑(lib/venues)을 거쳐 같은 공연장이면 같은 키가 나오도록
   const grouped = venueGroupKey(value);
   return grouped || normalizeConcertTitle(value || "");
+}
+
+// 여러 공연장을 "A / B"로 합쳐 표기한 경우까지 토큰 단위로 비교 —
+// 하나라도 같은 공연장이면 호환으로 봅니다. ("KINtex Hall 6"을 공유하는
+// "KINEX / KINTEX HALL 6" vs "KINtex Hall 7-8 / KINtex / KINTEK / KINtex Hall 6")
+export function venuesShareToken(a?: string, b?: string): boolean {
+  const tokens = (v?: string) =>
+    String(v || "").split(/\s*\/\s*/).map((t) => normalizeVenueKey(t)).filter(Boolean);
+  const setB = new Set(tokens(b));
+  return tokens(a).some((t) => setB.has(t));
 }
 
 // ─── 날짜 범위 ───
@@ -236,11 +253,26 @@ export function isSameConcert(a: ConcertRecord, b: ConcertRecord): boolean {
   //    "9/5", "9/6"처럼 날짜별로 따로 수집된 경우로 보고 하나의 기간으로 병합합니다.
   if (sameTitle && (overlap || (venueCompatible && dateRangeGapDays(a, b) <= 3))) return true;
 
+  // 같은 공연장 + 완전히 동일한 멀티데이 기간이면 같은 페스티벌로 봅니다.
+  //  - 제목이 약어↔풀네임("CDF2026-2027" vs "COUNTDOWN FANTASY 2026-2027")이거나
+  //    한/영("2026 Hero Rock Festival" vs "2026 히어로 락 페스티벌")이라 제목이 안 묶이고,
+  //    한쪽 라인업이 비어 있어 라인업 겹침으로도 못 묶는 케이스를 잡습니다.
+  //  - 같은 장소에서 같은 3일을 통째로 쓰는 서로 다른 페스티벌은 사실상 없으므로 안전합니다.
+  const ra = getDateRange(a);
+  const rb = getDateRange(b);
+  const identicalMultiDayRange =
+    !!ra.start && ra.start === rb.start && ra.end === rb.end && ra.end > ra.start;
+  if (identicalMultiDayRange && venuesShareToken(a.venueName, b.venueName)) return true;
+
   // 아래 라인업 기반 판정은 날짜가 실제로 겹칠 때만 적용합니다.
   if (!overlap) return false;
 
   const lineupOverlap = lineupOverlapRatio(a.artistNames, b.artistNames);
-  if (venueEqual && lineupOverlap >= 0.5) return true;
+  const lineupCommon = lineupCommonCount(a.artistNames, b.artistNames);
+  // 같은 장소 + 라인업 겹침. 단, 2팀짜리 라인업에서 보조 출연자 1명만 겹쳐도 0.5가
+  // 나오므로(헤드라이너가 다른 "서재페 앳 더 씨어터 - 킹스 오브 컨비니언스" vs
+  // "- 크리스토퍼" 같은 별개 공연이 오병합됨), 공통 2팀 이상 또는 완전 일치일 때만 인정.
+  if (venueEqual && lineupOverlap >= 0.5 && (lineupCommon >= 2 || lineupOverlap >= 1)) return true;
 
   const countA = splitArtists(a.artistNames).length;
   const countB = splitArtists(b.artistNames).length;

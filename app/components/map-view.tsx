@@ -33,7 +33,8 @@ declare global {
 const DEFAULT_CENTER = { lat: 37.5559, lng: 126.9234 };
 
 // 공연장 좌표 캐시 — 한 번 검색한 좌표는 기기에 저장해 재방문 시 즉시 표시
-const COORDS_CACHE_KEY = "indieLive.venueCoords.v1";
+// v2: 검색어 교정(지역 수식어)으로 잘못 저장된 동명 지방 좌표 캐시를 무효화
+const COORDS_CACHE_KEY = "indieLive.venueCoords.v2";
 
 type CoordsCache = Record<string, { lat: number; lng: number }>;
 

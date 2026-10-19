@@ -9,7 +9,7 @@ function normalizeKey(value: string): string {
 // 새 공연장 별칭이 발견되면 이 목록에 추가하면 수집/표시 전체에 반영됩니다.
 const VENUE_ALIAS_GROUPS: string[][] = [
   ["롤링홀", "rolling hall", "rollinghall", "클럽 롤링홀"],
-  ["클럽 FF", "club ff", "clubff", "에프에프"],
+  ["클럽 FF", "club ff", "clubff", "에프에프", "ff"],
   ["수퍼노바", "super nova", "supernova", "슈퍼노바", "클럽 수퍼노바"],
   ["채널1969", "channel 1969", "channel1969", "채널 1969"],
   ["언플러그드", "unplugged", "카페 언플러그드", "언플러그드 홍대"],
@@ -25,6 +25,9 @@ const VENUE_ALIAS_GROUPS: string[][] = [
   ["네스트나다", "nest nada", "nestnada"],
   ["무대륙", "mudaeruk"],
   ["온스테이지", "onstage"],
+  ["모래내극락", "극락", "sukha", "모래내 극락"], // 극락/SUKHA = 모래내극락(서대문) 동일 공연장
+  ["클럽 프리버드", "프리버드", "freebird", "클럽프리버드"],
+  ["무신사 개러지", "무신사개러지", "musinsa garage", "musinsagarage"],
   ["KT&G 상상마당", "상상마당", "상상마당 라이브홀", "ktg상상마당"],
   ["펜타포트", "pentaport", "펜타포트 락 페스티벌"],
   ["송도달빛축제공원", "songdo moonlight festival park", "songdo moonlight festival park incheon", "달빛축제공원"],
@@ -96,4 +99,34 @@ export function canonicalVenueName(raw?: string): string {
 export function venueGroupKey(raw?: string): string {
   const canonical = canonicalVenueName(raw);
   return canonical ? normalizeKey(canonical) : "";
+}
+
+// 검색어 교정 — 지역 수식어 없는 바닥 이름으로 검색하면 동명의 지방 장소가 먼저
+// 잡히는 문제(대구 "제비다방", 원주 "연세대학교")를 막습니다. 큐레이션된 공연장은
+// 지역을 못 박은 질의를 최우선으로 시도하고, 못 찾으면 기존 후보로 폴백합니다.
+// (groupKey → 우선 검색어 목록). 좌표는 카카오가 주므로 여기선 지역만 지정합니다.
+const VENUE_QUERY_OVERRIDES: Record<string, string[]> = {};
+function addQueryOverride(venue: string, queries: string[]) {
+  const key = venueGroupKey(venue);
+  if (key) VENUE_QUERY_OVERRIDES[key] = queries;
+}
+// 홍대/마포권 라이브클럽 — "홍대" 수식어로 지방 동명 장소 배제 (웹 확인 완료)
+for (const v of [
+  "제비다방", "롤링홀", "클럽 FF", "수퍼노바", "채널1969", "언플러그드",
+  "프리즘홀", "웨스트브릿지", "벨로주", "스트레인지프룻", "클럽 빵",
+  "고고스2", "무대륙", "KT&G 상상마당", "생기스튜디오", "클럽 프리버드",
+  "무신사 개러지", "우무지",
+]) {
+  addQueryOverride(v, [`${v} 홍대`, `${v} 서울`]);
+}
+// 지역이 홍대 밖인 서울 공연장 (웹 확인 완료)
+addQueryOverride("모래내극락", ["모래내극락 서대문", "극락 모래내시장", "모래내극락 서울"]); // 서대문 모래내
+addQueryOverride("클럽 샤프", ["클럽 샤프 망원동", "클럽 샤프 서울 마포"]); // 마포 망원동
+addQueryOverride("펫사운즈 뮤직펍", ["펫사운즈 이태원", "펫사운즈 뮤직펍 서울"]); // 용산 경리단
+// 대학 공연장 — 캠퍼스가 여러 곳이라 지역 필수 (연세대는 신촌/원주)
+addQueryOverride("연세대학교 대강당", ["연세대학교 신촌캠퍼스 대강당", "연세대학교 대강당 서대문구", "연세대학교 신촌"]);
+
+export function venueQueryOverrides(raw?: string): string[] {
+  const key = venueGroupKey(raw);
+  return key ? VENUE_QUERY_OVERRIDES[key] || [] : [];
 }
