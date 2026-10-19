@@ -84,6 +84,27 @@ async function scrapePosterUrl(instagramUrl: string): Promise<string> {
 // pending 요청을 자동으로 source_accounts 에 등록합니다(관리자 승인 불필요).
 // 추측이 아니라 '사용자가 직접 준 핸들'만 쓰므로 오수집 위험이 낮고, 이후 이 크론 실행에서
 // 바로 수집됩니다. 악용(대형 계정 다량 등록으로 Apify 비용↑) 방지로 실행당 상한을 둡니다.
+// 특정 uid 의 모든 푸시 구독에 직접 알림(요청 접수 확인 등). 실패는 삼킴.
+async function pushToUid(db: any, uid: string, msg: { title: string; body: string; url?: string; tag?: string }): Promise<void> {
+  if (!uid) return;
+  const { getAdminMessaging } = await import("@/lib/firebase/admin");
+  const messaging = await getAdminMessaging();
+  if (!messaging?.sendEach) return;
+  const subs = await db.collection("pushSubscriptions").where("uid", "==", uid).get();
+  if (subs.empty) return;
+  const url = msg.url || "/";
+  const messages = subs.docs.map((s: any) => {
+    const token = s.data().token || s.id;
+    return {
+      token,
+      notification: { title: msg.title, body: msg.body },
+      data: { url, title: msg.title, body: msg.body, tag: msg.tag || "lcm-req" },
+      webpush: { fcmOptions: { link: url }, notification: { icon: "/icons/icon-192.png", badge: "/icons/icon-192.png" } },
+    };
+  });
+  await messaging.sendEach(messages).catch(() => {});
+}
+
 async function autoAddRequestedSources(db: any, FieldValue: any): Promise<number> {
   const MAX_PER_RUN = 10;
   const reqSnap = await db.collection("artist_requests").where("status", "==", "pending").get();
@@ -113,6 +134,13 @@ async function autoAddRequestedSources(db: any, FieldValue: any): Promise<number
     });
     await doc.ref.update({ status: "approved", autoAdded: true, resolvedAt: FieldValue.serverTimestamp() }).catch(() => {});
     added++;
+
+    // 요청자에게 접수 확인 푸시 (새 공연 알림은 수집되면 별도로 감).
+    await pushToUid(db, String(r.uid || ""), {
+      title: "🔔 요청하신 아티스트 등록 완료",
+      body: `${r.artistName || "@" + handle} 공연을 찾기 시작했어요. 새 공연이 올라오면 알려드릴게요.`,
+      tag: `req-${handle}`,
+    }).catch(() => {});
 
     // 관리자 가시성 — 잘못 추가됐으면 /admin 에서 끄거나 삭제할 수 있게 디스코드 알림.
     const label = r.artistName ? `${r.artistName} · @${handle}` : `@${handle}`;
