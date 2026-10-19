@@ -80,6 +80,63 @@ async function scrapePosterUrl(instagramUrl: string): Promise<string> {
   }
 }
 
+// 예매 오픈 일시(ticketOpenAt) 자동 백필 — 예정 공연 중 ticketOpenAt 이 비어있고 아직 시도 안 한 건의
+// 저장된 캡션(raw_posts)을 강화된 프롬프트로 재파싱해 자동 추출합니다. OpenAI만 사용(거의 무료).
+// 한계: 예매 일시가 '글(캡션)'에 적혀 있을 때만 채워집니다. 예매가 '프로필 링크' 뒤에만 있으면 못 채움.
+// 재시도 방지 플래그(ticketOpenBackfilledAt)로 같은 공연을 매일 재파싱하지 않습니다(비용 보호).
+async function backfillTicketOpen(db: any, FieldValue: any, openai: OpenAI, limit = 10): Promise<number> {
+  const today = new Date().toISOString().slice(0, 10);
+  const snap = await db.collection("events").get();
+  const targets = snap.docs
+    .map((d: any) => ({ id: d.id, ref: d.ref, ...d.data() }))
+    .filter(
+      (ev: any) =>
+        (ev.endDate || ev.date || "") >= today &&
+        !String(ev.ticketOpenAt || "").trim() &&
+        !ev.ticketOpenBackfilledAt &&
+        String(ev.instagramUrl || "").trim()
+    )
+    .slice(0, limit);
+
+  let filled = 0;
+  for (const ev of targets) {
+    try {
+      // 저장된 캡션 우선(무료). 없으면 Apify 단일 게시물로 폴백.
+      let caption = "";
+      const rp = await db.collection("raw_posts").where("instaLink", "==", ev.instagramUrl).limit(1).get();
+      if (!rp.empty) caption = String(rp.docs[0].data().caption || "");
+      if (!caption.trim() && process.env.APIFY_API_TOKEN) {
+        const res = await fetch(
+          `https://api.apify.com/v2/acts/apify~instagram-scraper/run-sync-get-dataset-items?token=${process.env.APIFY_API_TOKEN}`,
+          { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ directUrls: [ev.instagramUrl], resultsType: "details" }) }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          caption = Array.isArray(data) && data[0] ? String(data[0].caption || "") : "";
+        }
+      }
+      // 재시도 방지 마킹 (캡션 유무와 무관 — 비용/루프 보호)
+      await ev.ref.update({ ticketOpenBackfilledAt: FieldValue.serverTimestamp() }).catch(() => {});
+      if (!caption.trim()) continue;
+
+      const aiRes = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: buildEventExtractionPrompt(`[게시물 0]\n- 캡션: ${caption}`, "") }],
+        response_format: { type: "json_object" },
+      });
+      const parsed = sanitizeParsedEvent(JSON.parse(aiRes.choices[0].message.content || "{}"));
+      if (parsed.ticketOpenAt) {
+        await ev.ref.update({ ticketOpenAt: parsed.ticketOpenAt, updatedAt: FieldValue.serverTimestamp() });
+        filled++;
+        console.log(`[CRON] ticketOpenAt 백필: "${ev.title}" → ${parsed.ticketOpenAt}`);
+      }
+    } catch (e) {
+      console.warn(`[CRON] ticketOpenAt 백필 실패 (${ev.id}):`, e);
+    }
+  }
+  return filled;
+}
+
 // 사용자가 '찜할 때 인스타 선택입력'으로 보낸 요청(artist_requests) 중, 핸들이 파싱된
 // pending 요청을 자동으로 source_accounts 에 등록합니다(관리자 승인 불필요).
 // 추측이 아니라 '사용자가 직접 준 핸들'만 쓰므로 오수집 위험이 낮고, 이후 이 크론 실행에서
@@ -538,6 +595,14 @@ export async function GET(req: Request) {
       if (backfilledPosters > 0) console.log(`[CRON] 포스터 백필 ${backfilledPosters}건 완료`);
     } catch (backfillError) {
       console.warn("[CRON] 포스터 백필 실패 (무시하고 계속):", backfillError);
+    }
+
+    // [백필] 예매 오픈 일시 자동 추출 — 저장 캡션 재파싱(실행당 최대 10건, OpenAI만)
+    try {
+      const n = await backfillTicketOpen(db, FieldValue, openai, 10);
+      if (n > 0) console.log(`[CRON] 예매오픈 백필 ${n}건 완료`);
+    } catch (e) {
+      console.warn("[CRON] 예매오픈 백필 실패 (무시하고 계속):", e);
     }
 
     // raw_posts 무한 증식 방지: 60일 지난 원본 게시물 정리 (실행당 최대 200건)
