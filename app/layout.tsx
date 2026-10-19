@@ -5,6 +5,7 @@ import BottomNav from "./components/bottom-nav";
 import SwRegister from "./components/sw-register";
 import InstallPrompt from "./components/install-prompt";
 import UpdatePrompt from "./components/update-prompt";
+import RequestApprovedBanner from "./components/request-approved-banner";
 import InitialSplash from "./components/initial-splash";
 import { SettingsProvider } from "./contexts/settings-context";
 import { SITE_URL } from "@/lib/site";
@@ -58,6 +59,7 @@ export default function RootLayout({
           <BottomNav />
           <InstallPrompt />
           <UpdatePrompt />
+          <RequestApprovedBanner />
           <InitialSplash />
         </SettingsProvider>
         <SwRegister />

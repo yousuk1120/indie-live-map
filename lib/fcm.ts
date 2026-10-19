@@ -198,7 +198,11 @@ async function listenForeground(messaging: Awaited<ReturnType<typeof getMessagin
     });
     notification.onclick = () => {
       const url = payload.data?.url || "/";
-      window.open(url, "_blank");
+      // standalone 앱(홈 화면 PWA)에서 _blank는 외부 브라우저를 열어 앱 밖으로 튕깁니다.
+      // 같은 창에서 이동해 앱 안에 머물게 합니다.
+      window.focus();
+      window.location.assign(url);
+      notification.close();
     };
   });
 }
