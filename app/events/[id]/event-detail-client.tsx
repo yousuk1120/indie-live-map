@@ -331,6 +331,7 @@ function TimetableViewer({ url, onClose }: { url: string; onClose: () => void })
 
 /* ─── 날짜별 라인업 (읽기 전용) — 같은 아티스트가 여러 날 중복되면 처음 날에만 표시 ─── */
 function DayLineupView({ event }: { event: EventItem }) {
+  const { isFavorite, toggleFavorite } = useArtistPrefs();
   const cleaned = useMemo(() => {
     const seen = new Set<string>();
     return (event.dayLineups || [])
@@ -350,22 +351,37 @@ function DayLineupView({ event }: { event: EventItem }) {
 
   return (
     <div className="mt-8">
-      <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--accent)]">
+      <p className="mb-1 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--accent)]">
         Day by Day Lineup
+      </p>
+      <p className="mb-3 text-[11px] text-[var(--muted)]">
+        아티스트를 누르면 <span className="font-semibold text-[var(--accent)]">★ 관심</span> 등록 — 새 공연 알림·홈 필터에 반영됩니다
       </p>
       <div className="space-y-2">
         {cleaned.map((day) => (
           <div key={day.date} className="rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] p-4">
             <p className="mb-2.5 text-sm font-bold tabular-nums text-[var(--accent)]">{formatDayLabel(day.date)}</p>
             <div className="flex flex-wrap gap-1.5">
-              {day.artists.map((artist) => (
-                <span
-                  key={artist}
-                  className="rounded-full border border-[var(--line)] bg-[var(--panel)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)]"
-                >
-                  {artist}
-                </span>
-              ))}
+              {day.artists.map((artist) => {
+                const fav = isFavorite(artist);
+                return (
+                  <button
+                    key={artist}
+                    type="button"
+                    onClick={() => toggleFavorite(artist)}
+                    aria-pressed={fav}
+                    title={fav ? "관심 해제" : "관심 아티스트로 등록"}
+                    className={`flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs transition-all active:scale-90 ${
+                      fav
+                        ? "border-[var(--accent-border)] bg-[var(--accent-soft)] font-bold text-[var(--accent-2)]"
+                        : "border-[var(--line)] bg-[var(--panel)] font-medium text-[var(--text-secondary)]"
+                    }`}
+                  >
+                    <span aria-hidden>{fav ? "★" : "☆"}</span>
+                    {artist}
+                  </button>
+                );
+              })}
             </div>
           </div>
         ))}
