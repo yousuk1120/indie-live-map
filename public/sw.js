@@ -7,7 +7,7 @@
 // 둘 다 SKIP_WAITING 메시지로 새 버전을 활성화 → 새로고침합니다.
 //
 // ⚠️ 릴리스마다 이 버전(v숫자)을 올리세요 — 값이 바뀌어야 브라우저가 새 SW로 인식합니다.
-const CACHE_NAME = "live-club-map-v10";
+const CACHE_NAME = "live-club-map-v11";
 
 self.addEventListener("install", () => {
   // 의도적으로 skipWaiting() 하지 않음 — 사용자 확인 후 적용.
