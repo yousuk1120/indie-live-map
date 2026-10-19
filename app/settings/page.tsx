@@ -455,6 +455,7 @@ function FavoriteArtistSection({
 }) {
   const { keys, ready } = useKnownArtistKeys();
   const [name, setName] = useState("");
+  const [igUrl, setIgUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [ok, setOk] = useState(false);
@@ -471,19 +472,23 @@ function FavoriteArtistSection({
 
       // 현재 공연 풀에 있으면 요청 불필요. 로딩 전/불명확하면 안전하게 요청을 보냄.
       const inPool = ready && keys.has(normalizeArtistKey(trimmed));
+      const ig = igUrl.trim();
       if (inPool) {
         setOk(true);
         setMessage(`‘${trimmed}’ 관심 등록 완료! 새 공연이 올라오면 알림을 받을 수 있어요.`);
       } else {
-        const result = await submitArtistRequest({ instagramUrl: "", artistName: trimmed });
+        const result = await submitArtistRequest({ instagramUrl: ig, artistName: trimmed });
         setOk(result.ok);
         setMessage(
-          result.ok
-            ? `‘${trimmed}’ 관심 등록 완료! 아직 앱에 공연 정보가 없어 추가 요청도 함께 보냈어요. 검토 후 수집되면 알림을 받을 수 있어요.`
-            : `관심 등록은 됐지만 추가 요청 전송에 실패했어요: ${result.message}`
+          !result.ok
+            ? `관심 등록은 됐지만 추가 요청 전송에 실패했어요: ${result.message}`
+            : ig
+              ? `‘${trimmed}’ 관심 등록 완료! 인스타를 받아서 하루 안에 공연을 모아 알림을 보내드릴게요.`
+              : `‘${trimmed}’ 관심 등록 완료! 아직 앱에 공연 정보가 없어 추가 요청을 보냈어요. (인스타 주소를 함께 넣으면 더 빨리 자동 수집돼요)`
         );
       }
       setName("");
+      setIgUrl("");
     } finally {
       setBusy(false);
     }
@@ -502,23 +507,36 @@ function FavoriteArtistSection({
         아직 앱에 없는 아티스트면 추가 요청이 함께 접수됩니다.
       </p>
 
-      <form onSubmit={handleAdd} className="mb-4 flex gap-2">
+      <form onSubmit={handleAdd} className="mb-4 flex flex-col gap-2">
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="아티스트 이름 (예: 실리카겔)"
+            maxLength={100}
+            aria-label="관심 아티스트 이름"
+            className="h-11 min-w-0 flex-1 rounded-xl border border-[var(--line)] bg-[var(--panel-2)] px-4 text-sm text-[var(--text)] placeholder:text-[var(--faint)] focus:border-[var(--accent-border)] focus:outline-none"
+          />
+          <button
+            type="submit"
+            disabled={busy || !name.trim()}
+            className="h-11 shrink-0 whitespace-nowrap rounded-xl bg-[var(--accent)] px-4 text-sm font-bold text-[#0a0a12] transition-all active:scale-95 disabled:opacity-40"
+          >
+            {busy ? "추가 중..." : "추가"}
+          </button>
+        </div>
         <input
           type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="아티스트 이름 (예: 실리카겔)"
-          maxLength={100}
-          aria-label="관심 아티스트 이름"
-          className="h-11 min-w-0 flex-1 rounded-xl border border-[var(--line)] bg-[var(--panel-2)] px-4 text-sm text-[var(--text)] placeholder:text-[var(--faint)] focus:border-[var(--accent-border)] focus:outline-none"
+          value={igUrl}
+          onChange={(e) => setIgUrl(e.target.value)}
+          placeholder="(선택) 이 아티스트 인스타 주소나 @아이디 — 넣으면 공연을 자동 수집해요"
+          maxLength={500}
+          inputMode="url"
+          autoCapitalize="none"
+          aria-label="아티스트 인스타그램 주소 (선택)"
+          className="h-10 min-w-0 rounded-xl border border-[var(--line)] bg-[var(--panel-2)] px-4 text-xs text-[var(--text)] placeholder:text-[var(--faint)] focus:border-[var(--accent-border)] focus:outline-none"
         />
-        <button
-          type="submit"
-          disabled={busy || !name.trim()}
-          className="h-11 shrink-0 whitespace-nowrap rounded-xl bg-[var(--accent)] px-4 text-sm font-bold text-[#0a0a12] transition-all active:scale-95 disabled:opacity-40"
-        >
-          {busy ? "추가 중..." : "추가"}
-        </button>
       </form>
 
       {message && (

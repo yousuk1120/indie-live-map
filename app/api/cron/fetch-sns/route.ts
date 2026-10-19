@@ -80,6 +80,51 @@ async function scrapePosterUrl(instagramUrl: string): Promise<string> {
   }
 }
 
+// 사용자가 '찜할 때 인스타 선택입력'으로 보낸 요청(artist_requests) 중, 핸들이 파싱된
+// pending 요청을 자동으로 source_accounts 에 등록합니다(관리자 승인 불필요).
+// 추측이 아니라 '사용자가 직접 준 핸들'만 쓰므로 오수집 위험이 낮고, 이후 이 크론 실행에서
+// 바로 수집됩니다. 악용(대형 계정 다량 등록으로 Apify 비용↑) 방지로 실행당 상한을 둡니다.
+async function autoAddRequestedSources(db: any, FieldValue: any): Promise<number> {
+  const MAX_PER_RUN = 10;
+  const reqSnap = await db.collection("artist_requests").where("status", "==", "pending").get();
+  if (reqSnap.empty) return 0;
+
+  let added = 0;
+  for (const doc of reqSnap.docs) {
+    if (added >= MAX_PER_RUN) break;
+    const r = doc.data();
+    // submitArtistRequest 가 parseInstagramHandle 로 저장해 둔 핸들. 없으면 관리자 몫으로 남김.
+    const handle = String(r.accountName || "").trim().toLowerCase().replace(/[^a-z0-9._]/g, "");
+    if (!handle) continue;
+
+    const exists = await db.collection("source_accounts").where("accountName", "==", handle).limit(1).get();
+    if (!exists.empty) {
+      await doc.ref.update({ status: "approved", autoAdded: true, resolvedAt: FieldValue.serverTimestamp() }).catch(() => {});
+      continue;
+    }
+
+    await db.collection("source_accounts").add({
+      accountName: handle,
+      category: "밴드",
+      isActive: true,
+      addedViaRequest: true,
+      requestedArtistName: String(r.artistName || "").slice(0, 100),
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    await doc.ref.update({ status: "approved", autoAdded: true, resolvedAt: FieldValue.serverTimestamp() }).catch(() => {});
+    added++;
+
+    // 관리자 가시성 — 잘못 추가됐으면 /admin 에서 끄거나 삭제할 수 있게 디스코드 알림.
+    const label = r.artistName ? `${r.artistName} · @${handle}` : `@${handle}`;
+    await sendAdminAlert("🤖 사용자 요청 자동 소스 추가", [
+      `${label}  [밴드]`,
+      `https://www.instagram.com/${handle}/`,
+      "엉뚱하면 /admin 소스 목록에서 끄거나 삭제하세요.",
+    ]).catch(() => {});
+  }
+  return added;
+}
+
 // Vercel Cron Job 또는 외부 스케줄러에서 GET으로 호출합니다.
 // 보안을 위해 CRON_SECRET 과 일치하는 secret 파라미터가 있어야 실행됩니다.
 export async function GET(req: Request) {
@@ -134,6 +179,13 @@ export async function GET(req: Request) {
     }
 
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+    // 0. 사용자가 인스타 핸들과 함께 보낸 아티스트 요청을 자동 소스 등록 (이번 실행에서 바로 수집)
+    const autoAdded = await autoAddRequestedSources(db, FieldValue).catch((e) => {
+      console.warn("[CRON] 요청 자동 소스 추가 실패:", e);
+      return 0;
+    });
+    if (autoAdded) console.log(`[CRON] 사용자 요청 자동 소스 추가: ${autoAdded}건`);
 
     // 1. 활성화된(isActive = true) 타겟 계정 목록 불러오기 (Admin SDK 사용)
     const sourcesSnap = await db
