@@ -206,6 +206,16 @@ export function getDateRange(ev: Pick<ConcertRecord, "date" | "endDate">): { sta
   return { start, end };
 }
 
+// 페스티벌로 볼 만한 신호 — 날짜 간격 병합(비겹침 범위 확장)을 이 경우에만 허용해,
+// 같은 장소에서 며칠 간격으로 열리는 "쇼케이스/정기공연 밤"이 하나로 잘못 합쳐지는 걸 막습니다.
+export function looksLikeFestival(ev: Pick<ConcertRecord, "title" | "date" | "endDate" | "dayLineups">): boolean {
+  if (/페스티벌|페스타|festival|\bfest\b|뮤직페|락페/i.test(ev.title || "")) return true;
+  const r = getDateRange(ev);
+  if (r.start && r.end > r.start) return true; // 멀티데이 기간을 자체 보유
+  if ((ev.dayLineups || []).length > 0) return true; // 날짜별 라인업 보유
+  return false;
+}
+
 export function dateRangesOverlap(a: Pick<ConcertRecord, "date" | "endDate">, b: Pick<ConcertRecord, "date" | "endDate">): boolean {
   const ra = getDateRange(a);
   const rb = getDateRange(b);
@@ -251,7 +261,15 @@ export function isSameConcert(a: ConcertRecord, b: ConcertRecord): boolean {
   //    한 행사가 여러 공연장에서 동시 진행 / 아티스트·기획사 계정 vs 공연장 계정) 묶습니다.
   //  - 날짜가 겹치지 않아도, 장소가 호환되고 날짜가 인접(±3일)하면 멀티데이 페스티벌이
   //    "9/5", "9/6"처럼 날짜별로 따로 수집된 경우로 보고 하나의 기간으로 병합합니다.
-  if (sameTitle && (overlap || (venueCompatible && dateRangeGapDays(a, b) <= 3))) return true;
+  //    단, 같은 장소에서 며칠 간격으로 열리는 "쇼케이스 밤"(제비다방처럼 매번 다른
+  //    단일 아티스트, 같은 제목)이 오병합되지 않도록 — 비겹침 범위 병합은 '페스티벌 신호'
+  //    또는 '라인업 공유(1팀 이상)'가 있을 때만 허용합니다.
+  if (sameTitle && overlap) return true;
+  if (sameTitle && venueCompatible && dateRangeGapDays(a, b) <= 3) {
+    const festivalSignal = looksLikeFestival(a) || looksLikeFestival(b);
+    const lineupShared = lineupCommonCount(a.artistNames, b.artistNames) >= 1;
+    if (festivalSignal || lineupShared) return true;
+  }
 
   // 같은 공연장 + 완전히 동일한 멀티데이 기간이면 같은 페스티벌로 봅니다.
   //  - 제목이 약어↔풀네임("CDF2026-2027" vs "COUNTDOWN FANTASY 2026-2027")이거나
