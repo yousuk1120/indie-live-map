@@ -49,11 +49,11 @@ export async function POST(req: Request) {
     // 관리자 허용목록 (설정돼 있으면 그 안의 사용자만)
     const userId = body.member?.user?.id || body.user?.id || "";
     // 비밀값 아님(디스코드 userId) — env 없으면 기본 관리자(정유석) ID 사용.
-    const admins = (process.env.DISCORD_ADMIN_IDS || "92939580493529089").split(",").map((s) => s.trim()).filter(Boolean);
+    const admins = (process.env.DISCORD_ADMIN_IDS || "392939580493529089").split(",").map((s) => s.trim()).filter(Boolean);
     if (admins.length && !admins.includes(userId)) {
       return json({
         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-        data: { flags: 64, content: `이 명령을 쓸 권한이 없어요. (내 디스코드 ID: ${userId || "알수없음"} — 이 숫자를 관리자에게 전달하면 등록해줍니다)` },
+        data: { flags: 64, content: "이 명령을 쓸 권한이 없어요." },
       });
     }
 
