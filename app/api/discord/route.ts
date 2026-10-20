@@ -53,7 +53,7 @@ export async function POST(req: Request) {
     if (admins.length && !admins.includes(userId)) {
       return json({
         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-        data: { flags: 64, content: "이 명령을 쓸 권한이 없어요." },
+        data: { flags: 64, content: `이 명령을 쓸 권한이 없어요. (내 디스코드 ID: ${userId || "알수없음"} — 이 숫자를 관리자에게 전달하면 등록해줍니다)` },
       });
     }
 
