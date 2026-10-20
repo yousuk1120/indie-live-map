@@ -6,6 +6,7 @@ import SwRegister from "./components/sw-register";
 import InstallPrompt from "./components/install-prompt";
 import UpdatePrompt from "./components/update-prompt";
 import RequestApprovedBanner from "./components/request-approved-banner";
+import ToastHost from "./components/toast-host";
 import InitialSplash from "./components/initial-splash";
 import { SettingsProvider } from "./contexts/settings-context";
 import { SITE_URL } from "@/lib/site";
@@ -60,6 +61,7 @@ export default function RootLayout({
           <InstallPrompt />
           <UpdatePrompt />
           <RequestApprovedBanner />
+          <ToastHost />
           <InitialSplash />
         </SettingsProvider>
         <SwRegister />

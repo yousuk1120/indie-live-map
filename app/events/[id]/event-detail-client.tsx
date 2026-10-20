@@ -18,8 +18,29 @@ import { splitArtists } from "@/lib/event-merge";
 import { venueGroupKey } from "@/lib/venues";
 import { useTicketbook } from "@/lib/ticketbook";
 import { useArtistPrefs, eventArtists } from "@/lib/artist-prefs";
+import { submitArtistRequest } from "@/lib/artist-requests";
+import { showToast } from "@/lib/toast";
 import { addEventToCalendar } from "@/lib/ics";
 import { shareEventImage } from "@/lib/share-image";
+
+// 하트(★)로 관심 등록 시: 확인 토스트 + "추가 요청" 버튼(이 아티스트 공연을 더 받고 싶을 때).
+// 해제(이미 관심이었음)할 땐 토스트를 띄우지 않습니다.
+function favThenToast(artist: string, wasFav: boolean, toggleFavorite: (name: string) => void) {
+  toggleFavorite(artist);
+  if (wasFav) return;
+  showToast({
+    message: `‘${artist}’ 관심 등록! 새 공연 올라오면 알림드려요`,
+    action: {
+      label: "추가 요청",
+      onClick: async () => {
+        const r = await submitArtistRequest({ artistName: artist, instagramUrl: "" });
+        showToast({
+          message: r.ok ? `‘${artist}’ 추가 요청을 보냈어요! 확인 후 공연을 모아드릴게요` : "요청 실패 — 잠시 후 다시 시도해주세요",
+        });
+      },
+    },
+  });
+}
 
 function extractExternalUrl(value?: string) {
   const raw = toText(value);
@@ -253,7 +274,7 @@ function ArtistPrefsSection({ event }: { event: EventItem }) {
               <div className="flex shrink-0 items-center gap-1.5">
                 <button
                   type="button"
-                  onClick={() => toggleFavorite(artist)}
+                  onClick={() => favThenToast(artist, fav, toggleFavorite)}
                   aria-pressed={fav}
                   title={fav ? "관심 해제" : "관심 아티스트로 등록"}
                   className={`flex h-9 items-center gap-1.5 rounded-full border px-3 text-xs font-bold transition-all active:scale-90 ${
@@ -368,7 +389,7 @@ function DayLineupView({ event }: { event: EventItem }) {
                   <button
                     key={artist}
                     type="button"
-                    onClick={() => toggleFavorite(artist)}
+                    onClick={() => favThenToast(artist, fav, toggleFavorite)}
                     aria-pressed={fav}
                     title={fav ? "관심 해제" : "관심 아티스트로 등록"}
                     className={`flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs transition-all active:scale-90 ${

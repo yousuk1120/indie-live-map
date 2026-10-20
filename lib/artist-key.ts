@@ -31,6 +31,7 @@ const ALIAS_GROUPS: string[][] = [
   ["장기하", "Jang Kiha"],
   ["새소년", "Se So Neon", "SeSoNeon"],
   ["잔나비", "Jannabi"],
+  ["김뜻돌", "Meaningful Stone", "김뜻돌 MEANINGFUL STONE", "김뜻돌 Meaningful Stone"],
   ["아디오스오디오", "AdiosAudio"],
 ];
 
