@@ -28,7 +28,8 @@ export async function POST(req: Request) {
   const ts = req.headers.get("x-signature-timestamp") || "";
   const raw = await req.text();
 
-  const publicKey = process.env.DISCORD_PUBLIC_KEY || "";
+  // 비밀값 아님(Ed25519 공개키) — env 없으면 기본값 사용해 Vercel 대시보드 설정 없이도 동작.
+  const publicKey = process.env.DISCORD_PUBLIC_KEY || "b940b0dadef17b25d387147f1d4199c841c47cedcae203d4d8fc43d3701b3ef2";
   const valid = !!publicKey && !!sig && !!ts && (await verifyKey(raw, sig, ts, publicKey));
   if (!valid) return json({ error: "invalid request signature" }, 401);
 
@@ -47,7 +48,8 @@ export async function POST(req: Request) {
   if (body.type === InteractionType.APPLICATION_COMMAND && body.data?.name === "추가") {
     // 관리자 허용목록 (설정돼 있으면 그 안의 사용자만)
     const userId = body.member?.user?.id || body.user?.id || "";
-    const admins = (process.env.DISCORD_ADMIN_IDS || "").split(",").map((s) => s.trim()).filter(Boolean);
+    // 비밀값 아님(디스코드 userId) — env 없으면 기본 관리자(정유석) ID 사용.
+    const admins = (process.env.DISCORD_ADMIN_IDS || "92939580493529089").split(",").map((s) => s.trim()).filter(Boolean);
     if (admins.length && !admins.includes(userId)) {
       return json({
         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
