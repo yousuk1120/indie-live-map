@@ -214,20 +214,29 @@ async function listenForeground(messaging: Awaited<ReturnType<typeof getMessagin
   if (foregroundBound || !messaging) return;
   foregroundBound = true;
   const { onMessage } = await import("firebase/messaging");
-  onMessage(messaging, (payload) => {
-    const n = payload.notification;
-    if (!n || Notification.permission !== "granted") return;
-    const notification = new Notification(n.title || "라이브클럽맵", {
-      body: n.body,
+  onMessage(messaging, async (payload) => {
+    const n = payload.notification || {};
+    const data = payload.data || {};
+    if (Notification.permission !== "granted") return;
+    const title = n.title || data.title || "라이브클럽맵";
+    const options: NotificationOptions = {
+      body: n.body || data.body || "",
       icon: "/icons/icon-192.png",
-    });
-    notification.onclick = () => {
-      const url = payload.data?.url || "/";
-      // standalone 앱(홈 화면 PWA)에서 _blank는 외부 브라우저를 열어 앱 밖으로 튕깁니다.
-      // 같은 창에서 이동해 앱 안에 머물게 합니다.
-      window.focus();
-      window.location.assign(url);
-      notification.close();
+      badge: "/icons/icon-192.png",
+      tag: data.tag || "lcm-event",
+      data: { url: data.url || "/" },
     };
+    // ⚠️ Android 크롬/PWA 에서는 `new Notification()` 생성자가 금지(Illegal constructor)라
+    //    예외만 터지고 알림이 안 떴습니다("서버는 성공, 폰엔 안 뜸"의 포그라운드 원인).
+    //    반드시 서비스워커의 showNotification 으로 표시해야 모든 플랫폼에서 동작합니다.
+    //    클릭 이동은 SW 의 notificationclick 핸들러(sw.js / firebase-messaging-sw.js)가 처리합니다.
+    try {
+      const reg =
+        (await navigator.serviceWorker.getRegistration(FCM_SW_SCOPE)) ||
+        (await navigator.serviceWorker.ready);
+      await reg.showNotification(title, options);
+    } catch (error) {
+      console.warn("포그라운드 알림 표시 실패:", error);
+    }
   });
 }
