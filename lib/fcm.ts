@@ -159,14 +159,39 @@ export async function disablePush(): Promise<void> {
   }
 }
 
-// 관심 아티스트 변경 시 구독 문서의 favoriteKeys 갱신 (푸시가 켜져 있을 때만)
+// 앱 로드/관심 변경 시: 푸시 권한이 이미 허용돼 있으면 "현재 유효한" FCM 토큰으로
+// 구독을 재동기화한다.
+//
+// ⚠️ 왜 토큰을 다시 받아오나: FCM 토큰은 회전·만료된다(SW 교체, PWA 재설치, 브라우저
+//    데이터 정리, 장기 미사용 → NotRegistered). enablePush 는 토큰을 "한 번"만 발급하므로,
+//    그 뒤 토큰이 죽으면 재등록 경로가 없어 모든 푸시가 조용히 실패했다(= 새 공연 알림 끊김).
+//    여기서 매 로드마다 getToken 으로 최신 토큰을 받아 죽은 토큰을 교체해 자가 치유한다.
+//    getToken 은 유효 토큰이 있으면 그대로, 회전됐으면 새 토큰을 돌려주므로 비용은 저렴하다.
 export async function refreshSubscriptionFavorites(favoriteKeys: string[]): Promise<void> {
-  const token = getStoredToken();
-  if (!token) return;
+  if (getPermission() !== "granted") return; // 권한 없으면 토큰 요청 금지(프롬프트 유발 방지)
+  if (!VAPID_KEY) return;
   try {
+    const messaging = await getMessagingSafe();
+    if (!messaging) return;
+    ensureCloudAuth();
+    const swRegistration = await registerMessagingSw();
+    const { getToken } = await import("firebase/messaging");
+    const token = await getToken(messaging, {
+      vapidKey: VAPID_KEY,
+      serviceWorkerRegistration: swRegistration,
+    });
+    if (!token) return;
+
+    await waitForUid();
+    const prev = getStoredToken();
+    // 토큰이 회전됐으면 죽은 토큰 구독 문서를 정리(중복/유령 구독 방지)
+    if (prev && prev !== token) {
+      await deleteDoc(doc(db, "pushSubscriptions", prev)).catch(() => {});
+    }
     await writeSubscription(token, favoriteKeys);
+    setStoredToken(token);
   } catch (error) {
-    console.warn("구독 관심 목록 갱신 실패:", error);
+    console.warn("구독 토큰/관심 목록 갱신 실패:", error);
   }
 }
 

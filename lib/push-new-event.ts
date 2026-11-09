@@ -178,7 +178,21 @@ export async function sendNewEventPush(input: NewEventPushInput): Promise<NewEve
   });
 }
 
-type ArtistRecord = { title?: string; artistNames?: string; dayLineups?: Array<{ artists?: string }> };
+type ArtistRecord = {
+  title?: string;
+  artistNames?: string;
+  dayLineups?: Array<{ artists?: string }>;
+  date?: string;
+  endDate?: string;
+};
+
+// KST 기준 오늘(YYYY-MM-DD). 지난 공연 알림은 무의미/스팸이므로 발송 전에 거른다.
+function isPastEvent(record: ArtistRecord): boolean {
+  const end = (record.endDate || record.date || "").slice(0, 10);
+  if (!end) return false; // 날짜 미상은 막지 않음(기존 동작 보존)
+  const todayKst = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  return end < todayKst;
+}
 
 // 레코드의 전체 출연 아티스트 표시명(artistNames + 날짜별 라인업), 키 기준 중복 제거.
 function collectArtistNames(record: ArtistRecord): string[] {
@@ -202,6 +216,7 @@ export async function notifyNewEventFromRecord(
   eventId?: string
 ): Promise<void> {
   try {
+    if (isPastEvent(record)) return; // 이미 지난 공연은 알리지 않음
     const artists = collectArtistNames(record).join(", ");
     if (!artists.trim()) return;
     await sendNewEventPush({ title: record.title, artists, eventId });
@@ -219,6 +234,7 @@ export async function notifyMergedEventNewArtists(
   eventId?: string
 ): Promise<void> {
   try {
+    if (isPastEvent(after)) return; // 이미 지난 공연은 알리지 않음
     const beforeKeys = new Set(collectArtistNames(before).map(normalizeArtistKey));
     const newNames = collectArtistNames(after).filter((n) => !beforeKeys.has(normalizeArtistKey(n)));
     if (newNames.length === 0) return;
